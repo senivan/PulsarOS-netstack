@@ -1,0 +1,18 @@
+#pragma once
+
+#include <stdint.h>
+
+enum drop_reason {
+    DROP_NONE, DROP_PORT_BINDING, DROP_TRUNCATED_ETH, DROP_UNSUPPORTED_ETHERTYPE,
+    DROP_INVALID_ARP, DROP_INVALID_IPV4, DROP_IPV4_FRAGMENT, DROP_NOT_LOCAL,
+    DROP_IPV4_OPTIONS, DROP_INVALID_ICMP, DROP_UNSUPPORTED_ICMP,
+    DROP_UNSUPPORTED_PROTOCOL, DROP_GRAPH_FULL, DROP_TX_FAILED,
+    DROP_MTU, DROP_NO_TAILROOM, DROP_NONCONTIGUOUS, DROP_INVALID_SOURCE,
+    DROP_REASON_MAX
+};
+
+struct packet_ctx {
+    uint16_t ingress_port_id, egress_port_id;
+    uint16_t l3_offset, l4_offset;
+    uint8_t drop_reason;
+};

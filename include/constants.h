@@ -1,0 +1,9 @@
+#pragma once
+
+#define DPDK_RX_DESC 1024
+#define DPDK_TX_DESC 1024
+#define DPDK_MBUF_COUNT 8192
+#define DPDK_MBUF_CACHE 256
+#define DPDK_BURST 64
+#define GRAPH_FRAME_SIZE DPDK_BURST
+#define GRAPH_FRAME_POOL_SIZE 16
