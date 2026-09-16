@@ -9,6 +9,7 @@
 #include <rte_icmp.h>
 #include <rte_ip.h>
 #include <rte_malloc.h>
+#include <rte_udp.h>
 #include "runtime.h"
 
 static struct app_runtime rt;
@@ -16,6 +17,7 @@ static const struct rte_ether_addr peer = {{2, 0, 0, 0, 0, 1}};
 static _Alignas(8) uint8_t captured[2048];
 static uint16_t captured_len, tx_limit = UINT16_MAX;
 static unsigned captured_count;
+static struct rte_mbuf *captured_mbuf;
 
 static uint16_t capture(uint16_t port, uint16_t queue, struct rte_mbuf **pkts,
                         uint16_t count, void *arg)
@@ -28,6 +30,7 @@ static uint16_t capture(uint16_t port, uint16_t queue, struct rte_mbuf **pkts,
         memcpy(captured, rte_pktmbuf_mtod(pkts[i], const void *), captured_len);
         assert(pkts[i]->ol_flags == 0 && pkts[i]->tx_offload == 0);
         captured_count++;
+        captured_mbuf = pkts[i];
     }
     return sent;
 }
@@ -60,7 +63,7 @@ static struct rte_mbuf *arp_request(void)
     arp->arp_plen = 4;
     arp->arp_opcode = rte_cpu_to_be_16(RTE_ARP_OP_REQUEST);
     arp->arp_data.arp_sha = peer;
-    arp->arp_data.arp_sip = rte_cpu_to_be_32(RTE_IPV4(192, 0, 2, 1));
+    arp->arp_data.arp_sip = rte_cpu_to_be_32(RTE_IPV4(192u, 0, 2, 1));
     arp->arp_data.arp_tip = rt.port.ip_be;
     memset((char *)(arp + 1), 0xa5, 18);
     return m;
@@ -86,7 +89,7 @@ static struct rte_mbuf *echo(unsigned payload)
     ip->total_length = rte_cpu_to_be_16(20 + 8 + payload);
     ip->time_to_live = 1; /* A host must accept TTL=1, unlike a router. */
     ip->next_proto_id = IPPROTO_ICMP;
-    ip->src_addr = rte_cpu_to_be_32(RTE_IPV4(192, 0, 2, 1));
+    ip->src_addr = rte_cpu_to_be_32(RTE_IPV4(192u, 0, 2, 1));
     ip->dst_addr = rt.port.ip_be;
     struct rte_icmp_hdr *icmp = (struct rte_icmp_hdr *)(ip + 1);
     icmp->icmp_type = RTE_IP_ICMP_ECHO_REQUEST;
@@ -100,6 +103,7 @@ static struct rte_mbuf *echo(unsigned payload)
 
 static void submit(struct rte_mbuf *m, enum drop_reason reason)
 {
+    unsigned expected_available = rte_mempool_avail_count(rt.mbuf_pool) + m->nb_segs;
     uint64_t before = rt.graph.drop_reasons[reason];
     unsigned tx_before = captured_count;
     struct node_frame frame = { .count = 1 };
@@ -108,10 +112,214 @@ static void submit(struct rte_mbuf *m, enum drop_reason reason)
     assert(graph_submit(&rt, NODE_ETH_INPUT, &frame) == 0);
     assert(rt.graph.q_count == 0 && rt.active_output == NULL);
     for (unsigned i = 0; i < GRAPH_FRAME_POOL_SIZE; i++) assert(!rt.graph.slots[i].used);
+    assert(rte_mempool_avail_count(rt.mbuf_pool) == expected_available);
     if (reason != DROP_NONE) {
         assert(rt.graph.drop_reasons[reason] == before + 1);
         assert(captured_count == tx_before);
     }
+}
+
+static struct rte_mbuf *udp_packet(const void *payload, unsigned len, uint16_t port, int checksum)
+{
+    struct rte_mbuf *m = packet(42 + len, RTE_ETHER_TYPE_IPV4);
+    struct rte_ipv4_hdr *ip = ip_header(m);
+    ip->version_ihl = 0x45;
+    ip->total_length = rte_cpu_to_be_16(28 + len);
+    ip->time_to_live = 64;
+    ip->next_proto_id = IPPROTO_UDP;
+    ip->src_addr = rte_cpu_to_be_32(RTE_IPV4(192u, 0, 2, 1));
+    ip->dst_addr = rt.port.ip_be;
+    struct rte_udp_hdr *udp = (struct rte_udp_hdr *)(ip + 1);
+    udp->src_port = rte_cpu_to_be_16(50001);
+    udp->dst_port = rte_cpu_to_be_16(port);
+    udp->dgram_len = rte_cpu_to_be_16(8 + len);
+    if (len) memcpy(udp + 1, payload, len);
+    if (checksum) udp->dgram_cksum = rte_ipv4_udptcp_cksum(ip, udp);
+    ip_checksum(m);
+    return m;
+}
+
+/* Independent byte-oriented checksum oracle, including odd payload lengths. */
+static uint32_t sum_bytes(const uint8_t *data, unsigned length)
+{
+    uint32_t sum = 0;
+    for (unsigned i = 0; i < length; i += 2)
+        sum += (uint16_t)data[i] << 8 | (i + 1 < length ? data[i + 1] : 0);
+    return sum;
+}
+
+static uint16_t folded(uint32_t sum)
+{
+    while (sum >> 16) sum = (sum & 0xffff) + (sum >> 16);
+    return (uint16_t)sum;
+}
+
+static void check_udp_output(const uint8_t *payload, unsigned len, uint16_t id)
+{
+    const struct rte_ether_hdr *eth = (const struct rte_ether_hdr *)captured;
+    const struct rte_ipv4_hdr *ip = (const struct rte_ipv4_hdr *)(eth + 1);
+    const struct rte_udp_hdr *udp = (const struct rte_udp_hdr *)(ip + 1);
+    assert(rte_is_same_ether_addr(&eth->src_addr, &rt.port.mac));
+    assert(rte_is_same_ether_addr(&eth->dst_addr, &peer));
+    assert(eth->ether_type == rte_cpu_to_be_16(RTE_ETHER_TYPE_IPV4));
+    assert(ip->version_ihl == 0x45 && ip->time_to_live == 64);
+    assert(ip->src_addr == rt.port.ip_be);
+    assert(ip->dst_addr == rte_cpu_to_be_32(RTE_IPV4(192u, 0, 2, 1)));
+    assert(ip->total_length == rte_cpu_to_be_16(28 + len));
+    assert(ip->packet_id == rte_cpu_to_be_16(id));
+    assert(ip->fragment_offset == rte_cpu_to_be_16(RTE_IPV4_HDR_DF_FLAG));
+    assert(ip->next_proto_id == IPPROTO_UDP);
+    assert(folded(sum_bytes((const uint8_t *)ip, 20)) == UINT16_MAX);
+    assert(udp->src_port == rte_cpu_to_be_16(9000) && udp->dst_port == rte_cpu_to_be_16(50001));
+    assert(udp->dgram_len == rte_cpu_to_be_16(8 + len) && udp->dgram_cksum != 0);
+    uint32_t checksum = sum_bytes((const uint8_t *)&ip->src_addr, 8) + IPPROTO_UDP + 8 + len;
+    assert(folded(checksum + sum_bytes((const uint8_t *)udp, 8 + len)) == UINT16_MAX);
+    assert(!memcmp(udp + 1, payload, len));
+    unsigned frame_len = 42 + len < 60 ? 60 : 42 + len;
+    assert(captured_len == frame_len);
+    for (unsigned i = 42 + len; i < frame_len; i++) assert(captured[i] == 0);
+}
+
+static void udp_tests(void)
+{
+    uint8_t payload[PS_UDP_MAX_PAYLOAD], received[PS_UDP_MAX_PAYLOAD];
+    for (unsigned i = 0; i < sizeof(payload); i++) payload[i] = (uint8_t)i;
+    struct ps_addr address = { .ip_be = rte_cpu_to_be_32(RTE_IPV4(192u, 0, 2, 1)), .port = 50001 };
+    struct ps_addr source;
+    assert(ps_udp_bind(&rt, 0) == -EINVAL);
+    assert(ps_udp_bind(&rt, 9000) == 0);
+    assert(ps_udp_bind(&rt, 9000) == -EADDRINUSE);
+    assert(ps_udp_bind(&rt, 9001) == 0);
+    assert(ps_udp_recvfrom(&rt, 9000, received, sizeof(received), &source) == -EAGAIN);
+    assert(ps_udp_recvfrom(&rt, 9999, received, sizeof(received), &source) == -ENOENT);
+
+    const unsigned lengths[] = {0, 1, 2, 13, 64, PS_UDP_MAX_PAYLOAD};
+    for (unsigned j = 0; j < sizeof(lengths) / sizeof(lengths[0]); j++) {
+        unsigned len = lengths[j];
+        for (int checksum = 0; checksum <= 1; checksum++) {
+            submit(udp_packet(payload, len, 9000, checksum), DROP_NONE);
+            assert(ps_udp_recvfrom(&rt, 9000, received, sizeof(received), &source) == (ssize_t)len);
+            assert(!memcmp(received, payload, len));
+            assert(source.ip_be == address.ip_be && source.port == address.port);
+        }
+        uint16_t id = rt.next_ip_id;
+        assert(ps_udp_sendto(&rt, 9000, payload, len, &address) == (ssize_t)len);
+        check_udp_output(payload, len, id);
+        assert(rte_mempool_avail_count(rt.mbuf_pool) == 1023);
+    }
+    /* Computed zero must be encoded as 0xffff, never omitted on output. */
+    uint32_t pseudo_sum = sum_bytes((const uint8_t *)&rt.port.ip_be, 4) +
+        sum_bytes((const uint8_t *)&address.ip_be, 4) + IPPROTO_UDP + 10 + 9000 + 50001 + 10;
+    uint16_t word = (uint16_t)~folded(pseudo_sum);
+    uint8_t zero_checksum_payload[] = { (uint8_t)(word >> 8), (uint8_t)word };
+    assert(ps_udp_sendto(&rt, 9000, zero_checksum_payload, 2, &address) == 2);
+    assert(((const struct rte_udp_hdr *)(captured + 34))->dgram_cksum == UINT16_MAX);
+    submit(udp_packet(zero_checksum_payload, 2, 9000, 1), DROP_NONE);
+    assert(ps_udp_recvfrom(&rt, 9000, received, sizeof(received), &source) == 2);
+    assert(!memcmp(received, zero_checksum_payload, 2));
+    submit(udp_packet(payload, 13, 9001, 1), DROP_NONE);
+    assert(ps_udp_recvfrom(&rt, 9000, received, sizeof(received), &source) == -EAGAIN);
+    assert(ps_udp_recvfrom(&rt, 9001, received, 12, &source) == -EMSGSIZE);
+    assert(ps_udp_recvfrom(&rt, 9001, received, sizeof(received), &source) == 13);
+    assert(!memcmp(received, payload, 13));
+    submit(udp_packet(payload, 13, 9999, 1), DROP_UDP_UNBOUND_PORT);
+    struct rte_mbuf *m = udp_packet(payload, 0, 9000, 0);
+    rte_pktmbuf_trim(m, 1);
+    ip_header(m)->total_length = rte_cpu_to_be_16(27);
+    ip_checksum(m);
+    submit(m, DROP_INVALID_UDP);
+    m = udp_packet(payload, 1, 9000, 0);
+    rte_pktmbuf_mtod_offset(m, struct rte_udp_hdr *, 34)->dgram_len = rte_cpu_to_be_16(7);
+    submit(m, DROP_UDP_BAD_LENGTH);
+    m = udp_packet(payload, 1, 9000, 0);
+    rte_pktmbuf_mtod_offset(m, struct rte_udp_hdr *, 34)->dgram_len = rte_cpu_to_be_16(10);
+    submit(m, DROP_UDP_BAD_LENGTH);
+    m = udp_packet(payload, 13, 9000, 1);
+    rte_pktmbuf_mtod_offset(m, uint8_t *, 42)[0] ^= 1;
+    submit(m, DROP_UDP_BAD_CHECKSUM);
+    /* Checksum and delivery cover only the declared UDP datagram, not IP padding. */
+    m = udp_packet(payload, 13, 9000, 1);
+    memset(rte_pktmbuf_append(m, 7), 0xa5, 7);
+    ip_header(m)->total_length = rte_cpu_to_be_16(48);
+    ip_checksum(m);
+    submit(m, DROP_NONE);
+    assert(ps_udp_recvfrom(&rt, 9000, received, sizeof(received), &source) == 13);
+    assert(!memcmp(received, payload, 13));
+
+    /* Fill, reject, drain and wrap the receive queue without retaining mbufs. */
+    for (unsigned cycle = 0; cycle < 3; cycle++) {
+        for (unsigned i = 0; i < PS_UDP_RX_QUEUE_SIZE; i++) {
+            uint8_t value = (uint8_t)i;
+            submit(udp_packet(&value, 1, 9000, 1), DROP_NONE);
+        }
+        submit(udp_packet(payload, 1, 9000, 1), DROP_UDP_RX_QUEUE_FULL);
+        for (unsigned i = 0; i < PS_UDP_RX_QUEUE_SIZE; i++) {
+            assert(ps_udp_recvfrom(&rt, 9000, received, sizeof(received), &source) == 1);
+            assert(received[0] == i);
+        }
+    }
+
+    /* Keep the original receive storage occupied and poisoned during the send. */
+    m = udp_packet(payload, 13, 9000, 1);
+    struct rte_mbuf *original = m, *held[1023];
+    submit(m, DROP_NONE);
+    for (unsigned i = 0; i < 1023; i++) { held[i] = rte_pktmbuf_alloc(rt.mbuf_pool); assert(held[i]); }
+    for (unsigned i = 0; i < 1023; i++) if (held[i] != original) rte_pktmbuf_free(held[i]);
+    memset(rte_pktmbuf_append(original, 60), 0xcc, 60);
+    assert(ps_udp_recvfrom(&rt, 9000, received, sizeof(received), &source) == 13);
+    uint16_t id = rt.next_ip_id;
+    assert(ps_udp_sendto(&rt, 9000, received, 13, &source) == 13);
+    assert(captured_mbuf != original);
+    check_udp_output(payload, 13, id);
+    rte_pktmbuf_free(original);
+
+    struct ps_addr unknown = { .ip_be = rte_cpu_to_be_32(RTE_IPV4(192u, 0, 2, 3)), .port = 1 };
+    uint64_t before = rt.graph.drop_reasons[DROP_NEIGHBOUR_NOT_FOUND];
+    assert(ps_udp_sendto(&rt, 9000, payload, 1, &unknown) == -EIO);
+    assert(rt.graph.drop_reasons[DROP_NEIGHBOUR_NOT_FOUND] == before + 1);
+    unknown.ip_be = rte_cpu_to_be_32(RTE_IPV4(192u, 0, 2, 255));
+    before = rt.graph.drop_reasons[DROP_INVALID_DESTINATION];
+    assert(ps_udp_sendto(&rt, 9000, payload, 1, &unknown) == -EIO);
+    assert(rt.graph.drop_reasons[DROP_INVALID_DESTINATION] == before + 1);
+    assert(ps_udp_sendto(&rt, 9999, payload, 1, &address) == -ENOENT);
+    assert(ps_udp_sendto(&rt, 9000, payload, SIZE_MAX, &address) == -EMSGSIZE);
+    rt.port.mtu = 64;
+    assert(ps_udp_sendto(&rt, 9000, payload, 37, &address) == -EMSGSIZE);
+    rt.port.mtu = 1500;
+    for (unsigned i = 0; i < 1023; i++) { held[i] = rte_pktmbuf_alloc(rt.mbuf_pool); assert(held[i]); }
+    before = rt.graph.drop_reasons[DROP_MBUF_ALLOCATION_FAILED];
+    assert(ps_udp_sendto(&rt, 9000, payload, 1, &address) == -ENOMEM);
+    assert(rt.graph.drop_reasons[DROP_MBUF_ALLOCATION_FAILED] == before + 1);
+    for (unsigned i = 0; i < 1023; i++) rte_pktmbuf_free(held[i]);
+    for (unsigned i = 0; i < GRAPH_FRAME_POOL_SIZE; i++) rt.graph.slots[i].used = 1;
+    before = rt.graph.drop_reasons[DROP_GRAPH_FULL];
+    assert(ps_udp_sendto(&rt, 9000, payload, 1, &address) == -EIO);
+    assert(rt.graph.drop_reasons[DROP_GRAPH_FULL] == before + 1);
+    for (unsigned i = 0; i < GRAPH_FRAME_POOL_SIZE; i++) rt.graph.slots[i].used = 0;
+    tx_limit = 0;
+    before = rt.graph.drop_reasons[DROP_TX_FAILED];
+    assert(ps_udp_sendto(&rt, 9000, payload, 1, &address) == -EIO);
+    assert(rt.graph.drop_reasons[DROP_TX_FAILED] == before + 1);
+    tx_limit = 2;
+    struct node_frame burst = { .count = 4 };
+    for (unsigned i = 0; i < burst.count; i++) {
+        burst.pkts[i] = packet(1, 0);
+        burst.ctxs[i].src_port = 9000;
+        burst.ctxs[i].dst_port = address.port;
+        burst.ctxs[i].dst_ip_be = address.ip_be;
+    }
+    before = rt.graph.drop_reasons[DROP_TX_FAILED];
+    assert(graph_submit(&rt, NODE_UDP_OUTPUT, &burst) == 0);
+    assert(rt.graph.drop_reasons[DROP_TX_FAILED] == before + 2);
+    tx_limit = UINT16_MAX;
+    for (unsigned i = 0; i < 100; i++) {
+        assert(ps_udp_sendto(&rt, 9000, payload, 13, &address) == 13);
+        assert(rte_mempool_avail_count(rt.mbuf_pool) == 1023);
+    }
+    for (unsigned i = 2; i < PS_UDP_MAX_ENDPOINTS; i++) assert(ps_udp_bind(&rt, 9000 + i) == 0);
+    assert(ps_udp_bind(&rt, 10000) == -ENOSPC);
+    assert(rte_mempool_avail_count(rt.mbuf_pool) == 1023);
+    puts("UDP endpoints, checksums, output and ownership checks passed");
 }
 
 int main(void)
@@ -135,7 +343,7 @@ int main(void)
     assert(rte_eth_tx_queue_setup(rt.port.port_id, 0, 128, rte_socket_id(), NULL) == 0);
     assert(rte_eth_dev_start(rt.port.port_id) == 0);
     rt.port.mac = (struct rte_ether_addr){{2, 0, 0, 0, 0, 2}};
-    rt.port.ip_be = rte_cpu_to_be_32(RTE_IPV4(192, 0, 2, 2));
+    rt.port.ip_be = rte_cpu_to_be_32(RTE_IPV4(192u, 0, 2, 2));
     rt.port.prefix_len = 24;
     rt.port.mtu = 1500;
     const struct rte_eth_rxtx_callback *cb = rte_eth_add_tx_callback(rt.port.port_id, 0, capture, NULL);
@@ -146,13 +354,17 @@ int main(void)
     assert(neighbour_lookup(&table, 1, &learned) == -ENOENT);
     for (unsigned i = 1; i <= NEIGHBOUR_CAPACITY; i++)
         assert(neighbour_learn(&table, rte_cpu_to_be_32(i), &peer) == 0);
+    for (unsigned i = 1; i <= NEIGHBOUR_CAPACITY; i++) {
+        assert(neighbour_lookup(&table, rte_cpu_to_be_32(i), &learned) == 0);
+        assert(rte_is_same_ether_addr(&learned, &peer));
+    }
     assert(neighbour_learn(&table, rte_cpu_to_be_32(NEIGHBOUR_CAPACITY + 1), &peer) == -ENOSPC);
     assert(neighbour_learn(&table, rte_cpu_to_be_32(1), &rt.port.mac) == 0);
     assert(neighbour_lookup(&table, rte_cpu_to_be_32(1), &learned) == 0);
     assert(rte_is_same_ether_addr(&learned, &rt.port.mac));
 
     submit(arp_request(), DROP_NONE);
-    uint32_t peer_ip = rte_cpu_to_be_32(RTE_IPV4(192, 0, 2, 1));
+    uint32_t peer_ip = rte_cpu_to_be_32(RTE_IPV4(192u, 0, 2, 1));
     assert(neighbour_lookup(&rt.neighbours, peer_ip, &learned) == 0);
     assert(rte_is_same_ether_addr(&learned, &peer));
     assert(captured_count == 1 && captured_len == 60);
@@ -162,7 +374,7 @@ int main(void)
     assert(rte_is_same_ether_addr(&eth->dst_addr, &peer));
     assert(arp->arp_opcode == rte_cpu_to_be_16(RTE_ARP_OP_REPLY));
     assert(arp->arp_data.arp_sip == rt.port.ip_be);
-    assert(arp->arp_data.arp_tip == rte_cpu_to_be_32(RTE_IPV4(192, 0, 2, 1)));
+    assert(arp->arp_data.arp_tip == rte_cpu_to_be_32(RTE_IPV4(192u, 0, 2, 1)));
     for (unsigned i = 42; i < 60; i++) assert(captured[i] == 0);
     struct rte_mbuf *m = arp_request();
     rte_pktmbuf_mtod_offset(m, struct rte_arp_hdr *, 14)->arp_data.arp_sip = 0;
@@ -194,7 +406,7 @@ int main(void)
         assert(captured_count == before + 1);
         const struct rte_ipv4_hdr *ip = (const struct rte_ipv4_hdr *)(captured + 14);
         const struct rte_icmp_hdr *icmp = (const struct rte_icmp_hdr *)(ip + 1);
-        assert(ip->src_addr == rt.port.ip_be && ip->dst_addr == rte_cpu_to_be_32(RTE_IPV4(192, 0, 2, 1)));
+        assert(ip->src_addr == rt.port.ip_be && ip->dst_addr == rte_cpu_to_be_32(RTE_IPV4(192u, 0, 2, 1)));
         assert(ip->time_to_live == 64 && rte_ipv4_cksum(ip) == 0);
         assert(icmp->icmp_type == RTE_IP_ICMP_ECHO_REPLY && rte_raw_cksum(icmp, 8 + payload) == UINT16_MAX);
         assert(icmp->icmp_ident == rte_cpu_to_be_16(123) && icmp->icmp_seq_nb == rte_cpu_to_be_16(456));
@@ -233,6 +445,8 @@ int main(void)
     assert(rte_pktmbuf_chain(m, tail) == 0);
     submit(m, DROP_NONCONTIGUOUS);
 
+    udp_tests();
+
     tx_limit = 0;
     submit(echo(0), DROP_TX_FAILED);
     tx_limit = GRAPH_FRAME_SIZE / 2;
@@ -246,12 +460,13 @@ int main(void)
     assert(rt.graph.drop_reasons[DROP_TX_FAILED] == before + GRAPH_FRAME_SIZE / 2);
 
     /* Exhaustion must free the packet and account for the failed destination. */
+    before = rt.graph.drop_reasons[DROP_GRAPH_FULL];
     for (unsigned i = 0; i < GRAPH_FRAME_POOL_SIZE; i++) rt.graph.slots[i].used = 1;
     struct node_output out = {.rt = &rt};
     for (unsigned i = 0; i < NODE_MAX; i++) out.pending[i] = UINT16_MAX;
     struct packet_ctx ctx = {0};
     assert(node_enqueue(&out, NODE_ETH_INPUT, echo(0), &ctx) == -1);
-    assert(rt.graph.drop_reasons[DROP_GRAPH_FULL] == 1);
+    assert(rt.graph.drop_reasons[DROP_GRAPH_FULL] == before + 1);
     for (unsigned i = 0; i < GRAPH_FRAME_POOL_SIZE; i++) rt.graph.slots[i].used = 0;
     assert(graph_submit(&rt, NODE_MAX, &burst) == -1);
     burst.count = GRAPH_FRAME_SIZE + 1;

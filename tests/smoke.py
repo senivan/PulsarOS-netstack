@@ -10,7 +10,7 @@ import tempfile
 import time
 from pathlib import Path
 
-from scapy.all import ARP, ICMP, IP, Ether, Raw
+from scapy.all import ARP, ICMP, IP, UDP, Ether, Raw
 
 
 def ip(*args):
@@ -30,6 +30,7 @@ def receive(sock, predicate, timeout=2):
 
 def main():
     binary = sys.argv[1] if len(sys.argv) > 1 else "/build/netstack-dp"
+    test_udp = "--udp" in sys.argv
     host_mac, peer_mac = "02:00:00:00:00:02", "02:00:00:00:00:01"
     process = None
     ip("link", "add", "ns-host", "type", "veth", "peer", "name", "ns-peer")
@@ -80,12 +81,35 @@ def main():
                     pass
                 else:
                     raise AssertionError("replied to corrupt IPv4 checksum")
+                sent = 2
+                if test_udp:
+                    for data in (b"", b"hello-netstack", bytes(range(256))):
+                        datagram = (Ether(src=peer_mac, dst=host_mac) /
+                                    IP(src="192.0.2.1", dst="192.0.2.2", id=50000) /
+                                    UDP(sport=50001, dport=9000) / Raw(data))
+                        sock.send(bytes(datagram))
+                        reply = receive(sock, lambda p: UDP in p and p[UDP].sport == 9000)
+                        assert reply.src == host_mac and reply.dst == peer_mac
+                        assert reply[IP].src == "192.0.2.2" and reply[IP].dst == "192.0.2.1"
+                        assert reply[IP].id != 50000 and reply[IP].ttl == 64
+                        assert reply[UDP].dport == 50001 and reply[UDP].len == 8 + len(data)
+                        # Exclude minimum Ethernet frame padding from the UDP payload.
+                        assert bytes(reply[UDP])[8:reply[UDP].len] == data
+                        rebuilt = IP(bytes(reply[IP])[:reply[IP].len])
+                        del rebuilt.chksum
+                        del rebuilt[UDP].chksum
+                        rebuilt = IP(bytes(rebuilt))
+                        assert rebuilt.chksum == reply[IP].chksum
+                        assert rebuilt[UDP].chksum == reply[UDP].chksum != 0
+                        sent += 1
                 process.send_signal(signal.SIGTERM)
                 assert process.wait(timeout=5) == 0
                 output = log_path.read_text()
-                assert "invalid_ipv4" in output and "transmitted packets: 2" in output, output
+                assert "invalid_ipv4" in output and f"transmitted packets: {sent}" in output, output
                 print(output)
                 print("AF_PACKET startup, ARP, ICMP, invalid IPv4 and shutdown smoke passed")
+                if test_udp:
+                    print("native UDP echo, empty datagram and software checksums passed")
     finally:
         if process is not None and process.poll() is None:
             process.kill()
