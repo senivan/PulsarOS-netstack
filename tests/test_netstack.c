@@ -1,5 +1,6 @@
 #define _GNU_SOURCE
 #include <assert.h>
+#include <errno.h>
 #include <sched.h>
 #include <stdio.h>
 #include <string.h>
@@ -140,7 +141,20 @@ int main(void)
     const struct rte_eth_rxtx_callback *cb = rte_eth_add_tx_callback(rt.port.port_id, 0, capture, NULL);
     assert(cb && graph_init(&rt) == 0);
 
+    struct neighbour_table table = {0};
+    struct rte_ether_addr learned;
+    assert(neighbour_lookup(&table, 1, &learned) == -ENOENT);
+    for (unsigned i = 1; i <= NEIGHBOUR_CAPACITY; i++)
+        assert(neighbour_learn(&table, rte_cpu_to_be_32(i), &peer) == 0);
+    assert(neighbour_learn(&table, rte_cpu_to_be_32(NEIGHBOUR_CAPACITY + 1), &peer) == -ENOSPC);
+    assert(neighbour_learn(&table, rte_cpu_to_be_32(1), &rt.port.mac) == 0);
+    assert(neighbour_lookup(&table, rte_cpu_to_be_32(1), &learned) == 0);
+    assert(rte_is_same_ether_addr(&learned, &rt.port.mac));
+
     submit(arp_request(), DROP_NONE);
+    uint32_t peer_ip = rte_cpu_to_be_32(RTE_IPV4(192, 0, 2, 1));
+    assert(neighbour_lookup(&rt.neighbours, peer_ip, &learned) == 0);
+    assert(rte_is_same_ether_addr(&learned, &peer));
     assert(captured_count == 1 && captured_len == 60);
     const struct rte_ether_hdr *eth = (const struct rte_ether_hdr *)captured;
     const struct rte_arp_hdr *arp = (const struct rte_arp_hdr *)(eth + 1);
@@ -154,6 +168,25 @@ int main(void)
     rte_pktmbuf_mtod_offset(m, struct rte_arp_hdr *, 14)->arp_data.arp_sip = 0;
     submit(m, DROP_NONE);
     assert(arp->arp_data.arp_tip == 0); /* RFC 5227 probe. */
+    assert(neighbour_lookup(&rt.neighbours, 0, &learned) == -ENOENT);
+    m = arp_request();
+    struct rte_arp_hdr *update = rte_pktmbuf_mtod_offset(m, struct rte_arp_hdr *, 14);
+    update->arp_data.arp_sha.addr_bytes[5] = 3;
+    rte_pktmbuf_mtod(m, struct rte_ether_hdr *)->src_addr = update->arp_data.arp_sha;
+    submit(m, DROP_NONE);
+    assert(neighbour_lookup(&rt.neighbours, peer_ip, &learned) == 0 && learned.addr_bytes[5] == 3);
+    m = arp_request();
+    update = rte_pktmbuf_mtod_offset(m, struct rte_arp_hdr *, 14);
+    update->arp_hlen = 5;
+    submit(m, DROP_INVALID_ARP);
+    assert(neighbour_lookup(&rt.neighbours, peer_ip, &learned) == 0 && learned.addr_bytes[5] == 3);
+    m = arp_request();
+    update = rte_pktmbuf_mtod_offset(m, struct rte_arp_hdr *, 14);
+    update->arp_opcode = rte_cpu_to_be_16(RTE_ARP_OP_REPLY);
+    update->arp_data.arp_tha = rt.port.mac;
+    submit(m, DROP_NONE);
+    assert(neighbour_lookup(&rt.neighbours, peer_ip, &learned) == 0);
+    assert(rte_is_same_ether_addr(&learned, &peer));
 
     for (unsigned payload = 0; payload <= 65; payload++) {
         unsigned before = captured_count;

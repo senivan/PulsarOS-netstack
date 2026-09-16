@@ -4,6 +4,7 @@
 #include <rte_ethdev.h>
 #include "app.h"
 #include "graph.h"
+#include "neighbour.h"
 
 struct port_state {
     uint16_t port_id, mtu;
@@ -16,6 +17,8 @@ struct app_runtime {
     struct rte_mempool *mbuf_pool;
     struct port_state port;
     struct dp_graph graph;
+    struct neighbour_table neighbours;
+    uint64_t neighbour_learn_failures;
     struct node_output *active_output;
     volatile sig_atomic_t stop;
     uint64_t tx_packets;

@@ -31,6 +31,7 @@ int app_run(struct app_runtime *rt)
 void app_dump_stats(const struct app_runtime *rt)
 {
     graph_dump_stats(rt);
+    printf("neighbour learn failures: %llu\n", (unsigned long long)rt->neighbour_learn_failures);
     printf("transmitted packets: %llu\n", (unsigned long long)rt->tx_packets);
     struct rte_eth_stats stats;
     if (rte_eth_stats_get(rt->port.port_id, &stats) == 0)
