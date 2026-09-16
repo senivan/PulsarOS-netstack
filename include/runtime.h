@@ -5,6 +5,7 @@
 #include "app.h"
 #include "graph.h"
 #include "neighbour.h"
+#include "udp.h"
 
 struct port_state {
     uint16_t port_id, mtu;
@@ -18,6 +19,7 @@ struct app_runtime {
     struct port_state port;
     struct dp_graph graph;
     struct neighbour_table neighbours;
+    struct udp_endpoints udp;
     uint64_t neighbour_learn_failures;
     uint16_t next_ip_id;
     struct node_output *active_output;
