@@ -19,3 +19,4 @@ void tcp_input_node_run(struct app_runtime *, const struct node_frame *, struct 
 void tx_node_run(struct app_runtime *, const struct node_frame *, struct node_output *);
 void ipv4_output_node_run(struct app_runtime *, const struct node_frame *, struct node_output *);
 void eth_output_node_run(struct app_runtime *, const struct node_frame *, struct node_output *);
+void udp_output_node_run(struct app_runtime *, const struct node_frame *, struct node_output *);

@@ -1,4 +1,5 @@
 #include <errno.h>
+#include <string.h>
 #include <rte_ip.h>
 #include <rte_udp.h>
 #include "internal.h"
@@ -43,5 +44,39 @@ void udp_input_node_run(struct app_runtime *rt, const struct node_frame *in,
             continue;
         }
         rte_pktmbuf_free(m);
+    }
+}
+
+void udp_output_node_run(struct app_runtime *rt, const struct node_frame *in,
+                         struct node_output *out)
+{
+    for (uint16_t i = 0; i < in->count; i++) {
+        struct rte_mbuf *m = in->pkts[i];
+        struct packet_ctx ctx = in->ctxs[i];
+        uint32_t length = rte_pktmbuf_pkt_len(m) + sizeof(struct rte_udp_hdr);
+        if (length > UINT16_MAX - sizeof(struct rte_ipv4_hdr)) {
+            node_drop(rt, NODE_UDP_OUTPUT, m, &ctx, DROP_MTU, 0);
+            continue;
+        }
+        struct rte_udp_hdr *udp = (struct rte_udp_hdr *)rte_pktmbuf_prepend(m, sizeof(*udp));
+        if (!udp) {
+            node_drop(rt, NODE_UDP_OUTPUT, m, &ctx, DROP_NO_HEADROOM, 1);
+            continue;
+        }
+        udp->src_port = rte_cpu_to_be_16(ctx.src_port);
+        udp->dst_port = rte_cpu_to_be_16(ctx.dst_port);
+        udp->dgram_len = rte_cpu_to_be_16((uint16_t)length);
+        udp->dgram_cksum = 0;
+        struct rte_ipv4_hdr pseudo = {
+            .version_ihl = 0x45,
+            .total_length = rte_cpu_to_be_16((uint16_t)(sizeof(pseudo) + length)),
+            .next_proto_id = IPPROTO_UDP,
+            .src_addr = rt->port.ip_be,
+            .dst_addr = ctx.dst_ip_be
+        };
+        /* DPDK maps a computed zero UDP checksum to 0xffff (RFC 768). */
+        udp->dgram_cksum = rte_ipv4_udptcp_cksum(&pseudo, udp);
+        ctx.ip_protocol = IPPROTO_UDP;
+        node_enqueue(out, NODE_IPV4_OUTPUT, m, &ctx);
     }
 }

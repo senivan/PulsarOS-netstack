@@ -1,5 +1,7 @@
 #include <errno.h>
 #include <string.h>
+#include <rte_ip.h>
+#include <rte_udp.h>
 #include "runtime.h"
 #include "udp.h"
 
@@ -50,4 +52,41 @@ ssize_t ps_udp_recvfrom(struct app_runtime *rt, uint16_t port, void *buf,
     ep->head = (ep->head + 1) % PS_UDP_RX_QUEUE_SIZE;
     ep->count--;
     return datagram->length;
+}
+
+static ssize_t send_failure(struct app_runtime *rt, enum drop_reason reason, int error)
+{
+    /* These failures precede packet allocation/graph ownership. */
+    rt->graph.nodes[NODE_UDP_OUTPUT].stats.drops++;
+    rt->graph.nodes[NODE_UDP_OUTPUT].stats.errors++;
+    rt->graph.drop_reasons[reason]++;
+    return -error;
+}
+
+ssize_t ps_udp_sendto(struct app_runtime *rt, uint16_t source_port, const void *buf,
+                      size_t len, const struct ps_addr *destination)
+{
+    if (!rt || !destination || !destination->port || (!buf && len)) return -EINVAL;
+    if (rt->active_output) return -EBUSY;
+    if (!endpoint(rt, source_port)) return -ENOENT;
+    if (len > PS_UDP_MAX_PAYLOAD || len + sizeof(struct rte_ipv4_hdr) +
+        sizeof(struct rte_udp_hdr) > rt->port.mtu)
+        return send_failure(rt, DROP_MTU, EMSGSIZE);
+    struct rte_mbuf *m = rte_pktmbuf_alloc(rt->mbuf_pool);
+    if (!m) return send_failure(rt, DROP_MBUF_ALLOCATION_FAILED, ENOMEM);
+    void *payload = rte_pktmbuf_append(m, (uint16_t)len);
+    if (!payload) {
+        rte_pktmbuf_free(m);
+        return send_failure(rt, DROP_NO_TAILROOM, ENOBUFS);
+    }
+    if (len) memcpy(payload, buf, len);
+    struct node_frame frame = { .count = 1 };
+    frame.pkts[0] = m;
+    frame.ctxs[0].src_port = source_port;
+    frame.ctxs[0].dst_port = destination->port;
+    frame.ctxs[0].dst_ip_be = destination->ip_be;
+    uint64_t sent_before = rt->tx_packets;
+    /* Valid submission transfers ownership, including all rejection paths. */
+    graph_submit(rt, NODE_UDP_OUTPUT, &frame);
+    return rt->tx_packets != sent_before ? (ssize_t)len : -EIO;
 }

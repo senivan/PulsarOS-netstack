@@ -28,7 +28,7 @@ void ipv4_output_node_run(struct app_runtime *rt, const struct node_frame *in,
         }
         struct rte_ipv4_hdr *ip = (struct rte_ipv4_hdr *)rte_pktmbuf_prepend(m, sizeof(*ip));
         if (!ip) {
-            node_drop(rt, NODE_IPV4_OUTPUT, m, &ctx, DROP_NO_TAILROOM, 1);
+            node_drop(rt, NODE_IPV4_OUTPUT, m, &ctx, DROP_NO_HEADROOM, 1);
             continue;
         }
         /* Header construction follows the existing VXLAN outer-IPv4 pattern. */
@@ -61,7 +61,7 @@ void eth_output_node_run(struct app_runtime *rt, const struct node_frame *in,
         }
         struct rte_ether_hdr *eth = (struct rte_ether_hdr *)rte_pktmbuf_prepend(m, sizeof(*eth));
         if (!eth) {
-            node_drop(rt, NODE_ETH_OUTPUT, m, &ctx, DROP_NO_TAILROOM, 1);
+            node_drop(rt, NODE_ETH_OUTPUT, m, &ctx, DROP_NO_HEADROOM, 1);
             continue;
         }
         eth->src_addr = rt->port.mac;
