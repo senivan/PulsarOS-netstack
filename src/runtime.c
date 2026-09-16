@@ -15,16 +15,19 @@ int app_init(const char *progname, const struct app_config *conf, struct app_run
     return 0;
 }
 
+unsigned app_step(struct app_runtime *rt)
+{
+    struct node_frame frame = {0};
+    frame.count = rte_eth_rx_burst(rt->port.port_id, 0, frame.pkts, GRAPH_FRAME_SIZE);
+    for (uint16_t i = 0; i < frame.count; i++)
+        frame.ctxs[i].ingress_port_id = rt->port.port_id;
+    if (frame.count) graph_submit(rt, NODE_ETH_INPUT, &frame);
+    return frame.count;
+}
+
 int app_run(struct app_runtime *rt)
 {
-    while (!rt->stop) {
-        struct node_frame frame = {0};
-        frame.count = rte_eth_rx_burst(rt->port.port_id, 0, frame.pkts, GRAPH_FRAME_SIZE);
-        if (!frame.count) { rte_pause(); continue; }
-        for (uint16_t i = 0; i < frame.count; i++)
-            frame.ctxs[i].ingress_port_id = rt->port.port_id;
-        graph_submit(rt, NODE_ETH_INPUT, &frame);
-    }
+    while (!rt->stop) if (!app_step(rt)) rte_pause();
     return 0;
 }
 

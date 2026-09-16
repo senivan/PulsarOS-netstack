@@ -28,6 +28,9 @@ struct app_runtime {
 };
 
 int app_init(const char *progname, const struct app_config *conf, struct app_runtime *rt);
+/* Process one RX burst without blocking. Call application APIs between steps,
+ * on the same lcore; the graph is completely drained before this returns. */
+unsigned app_step(struct app_runtime *rt);
 int app_run(struct app_runtime *rt);
 void app_fini(struct app_runtime *rt);
 void app_dump_stats(const struct app_runtime *rt);
