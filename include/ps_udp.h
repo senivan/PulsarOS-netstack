@@ -21,3 +21,11 @@ int ps_udp_bind(struct app_runtime *rt, uint16_t port);
  * The caller owns buf; the stack never retains it. */
 ssize_t ps_udp_recvfrom(struct app_runtime *rt, uint16_t port, void *buf,
                         size_t len, struct ps_addr *src);
+
+/* Copy into a new packet and synchronously submit it to the output graph.
+ * Success means accepted by DPDK, not delivery confirmation. -EIO means a
+ * graph/output/TX rejection; the specific cause is in the drop-reason counters.
+ * -ENOMEM and -EMSGSIZE are reported before graph submission. A bound source
+ * port and a nonzero destination port are required. Never call inside a node. */
+ssize_t ps_udp_sendto(struct app_runtime *rt, uint16_t source_port, const void *buf,
+                      size_t len, const struct ps_addr *dst);
