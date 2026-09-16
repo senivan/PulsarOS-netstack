@@ -5,7 +5,6 @@
 
 #define NEIGHBOUR_CAPACITY 64
 
-/* Passive, reachable mappings only. Entries do not expire in this milestone. */
 struct neighbour_entry {
     uint32_t ip_be;
     struct rte_ether_addr mac;

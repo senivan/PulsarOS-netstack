@@ -89,7 +89,6 @@ void arp_input_node_run(struct app_runtime *rt, const struct node_frame *in,
         }
         uint32_t mask = rt->port.prefix_len ? UINT32_MAX << (32 - rt->port.prefix_len) : 0;
         uint32_t sender = rte_be_to_cpu_32(arp->arp_data.arp_sip);
-        /* Probes are answered but never learned; no gateways/off-link neighbours. */
         if (sender && (sender & mask) == (rte_be_to_cpu_32(rt->port.ip_be) & mask) &&
             neighbour_learn(&rt->neighbours, arp->arp_data.arp_sip, &arp->arp_data.arp_sha) < 0)
             rt->neighbour_learn_failures++;

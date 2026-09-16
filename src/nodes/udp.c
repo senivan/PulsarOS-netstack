@@ -12,7 +12,6 @@ void udp_input_node_run(struct app_runtime *rt, const struct node_frame *in,
     for (uint16_t i = 0; i < in->count; i++) {
         struct rte_mbuf *m = in->pkts[i];
         struct packet_ctx ctx = in->ctxs[i];
-        /* IPv4 already validated and trimmed this contiguous mbuf. */
         uint16_t available = rte_pktmbuf_pkt_len(m) - ctx.l4_offset;
         if (available < sizeof(struct rte_udp_hdr)) {
             node_drop(rt, NODE_UDP_INPUT, m, &ctx, DROP_INVALID_UDP, 1);
@@ -25,7 +24,7 @@ void udp_input_node_run(struct app_runtime *rt, const struct node_frame *in,
             continue;
         }
         const struct rte_ipv4_hdr *ip = rte_pktmbuf_mtod_offset(m, const struct rte_ipv4_hdr *, ctx.l3_offset);
-        /* UDP may be shorter than the IP payload. Its length owns the checksum. */
+        /* The pseudo-header uses UDP length, which may be shorter than the IP payload. */
         struct rte_ipv4_hdr pseudo = *ip;
         pseudo.total_length = rte_cpu_to_be_16(sizeof(pseudo) + length);
         uint32_t checksum = rte_raw_cksum(udp, length) + (uint32_t)rte_ipv4_phdr_cksum(&pseudo, 0);
@@ -74,7 +73,6 @@ void udp_output_node_run(struct app_runtime *rt, const struct node_frame *in,
             .src_addr = rt->port.ip_be,
             .dst_addr = ctx.dst_ip_be
         };
-        /* DPDK maps a computed zero UDP checksum to 0xffff (RFC 768). */
         udp->dgram_cksum = rte_ipv4_udptcp_cksum(&pseudo, udp);
         ctx.ip_protocol = IPPROTO_UDP;
         node_enqueue(out, NODE_IPV4_OUTPUT, m, &ctx);

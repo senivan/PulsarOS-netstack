@@ -31,7 +31,6 @@ int main(int argc, char **argv)
     fflush(stdout);
     while (!rt.stop) {
         app_step(&rt);
-        /* Bound application work so the single lcore keeps servicing RX. */
         for (unsigned i = 0; i < PS_UDP_RX_QUEUE_SIZE; i++) {
             uint8_t payload[PS_UDP_MAX_PAYLOAD];
             struct ps_addr peer;

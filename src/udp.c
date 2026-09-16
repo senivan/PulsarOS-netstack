@@ -56,7 +56,6 @@ ssize_t ps_udp_recvfrom(struct app_runtime *rt, uint16_t port, void *buf,
 
 static ssize_t send_failure(struct app_runtime *rt, enum drop_reason reason, int error)
 {
-    /* These failures precede packet allocation/graph ownership. */
     rt->graph.nodes[NODE_UDP_OUTPUT].stats.drops++;
     rt->graph.nodes[NODE_UDP_OUTPUT].stats.errors++;
     rt->graph.drop_reasons[reason]++;
@@ -86,7 +85,7 @@ ssize_t ps_udp_sendto(struct app_runtime *rt, uint16_t source_port, const void *
     frame.ctxs[0].dst_port = destination->port;
     frame.ctxs[0].dst_ip_be = destination->ip_be;
     uint64_t sent_before = rt->tx_packets;
-    /* Valid submission transfers ownership, including all rejection paths. */
+    /* The graph consumes the mbuf on success and failure. */
     graph_submit(rt, NODE_UDP_OUTPUT, &frame);
     return rt->tx_packets != sent_before ? (ssize_t)len : -EIO;
 }
