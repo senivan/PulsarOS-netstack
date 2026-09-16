@@ -82,8 +82,18 @@ void arp_input_node_run(struct app_runtime *rt, const struct node_frame *in,
             node_drop(rt, NODE_ARP_INPUT, m, &ctx, DROP_NOT_LOCAL, 0);
             continue;
         }
+        if (arp->arp_opcode == rte_cpu_to_be_16(RTE_ARP_OP_REPLY) &&
+            !rte_is_same_ether_addr(&arp->arp_data.arp_tha, &rt->port.mac)) {
+            node_drop(rt, NODE_ARP_INPUT, m, &ctx, DROP_INVALID_ARP, 1);
+            continue;
+        }
+        uint32_t mask = rt->port.prefix_len ? UINT32_MAX << (32 - rt->port.prefix_len) : 0;
+        uint32_t sender = rte_be_to_cpu_32(arp->arp_data.arp_sip);
+        /* Probes are answered but never learned; no gateways/off-link neighbours. */
+        if (sender && (sender & mask) == (rte_be_to_cpu_32(rt->port.ip_be) & mask) &&
+            neighbour_learn(&rt->neighbours, arp->arp_data.arp_sip, &arp->arp_data.arp_sha) < 0)
+            rt->neighbour_learn_failures++;
         if (arp->arp_opcode == rte_cpu_to_be_16(RTE_ARP_OP_REPLY)) {
-            /* No pending resolutions or neighbour cache in this receive-only phase. */
             rte_pktmbuf_free(m);
             continue;
         }
