@@ -44,12 +44,6 @@ static void unsupported(struct app_runtime *rt, const struct node_frame *in, enu
     }
 }
 
-void udp_input_node_run(struct app_runtime *rt, const struct node_frame *in, struct node_output *out)
-{
-    (void)out;
-    unsupported(rt, in, NODE_UDP_INPUT);
-}
-
 void tcp_input_node_run(struct app_runtime *rt, const struct node_frame *in, struct node_output *out)
 {
     (void)out;

@@ -222,7 +222,7 @@ int main(void)
     m = echo(0); ip_header(m)->version_ihl = 0x46; ip_checksum(m); submit(m, DROP_IPV4_OPTIONS);
     m = echo(0); ip_header(m)->total_length = rte_cpu_to_be_16(27); ip_checksum(m); submit(m, DROP_INVALID_ICMP);
     m = echo(1); rte_pktmbuf_mtod_offset(m, uint8_t *, 42)[0] ^= 1; submit(m, DROP_INVALID_ICMP);
-    m = echo(0); ip_header(m)->next_proto_id = IPPROTO_UDP; ip_checksum(m); submit(m, DROP_UNSUPPORTED_PROTOCOL);
+    m = echo(0); ip_header(m)->next_proto_id = IPPROTO_UDP; ip_checksum(m); submit(m, DROP_UDP_BAD_LENGTH);
     m = echo(0); ip_header(m)->next_proto_id = IPPROTO_TCP; ip_checksum(m); submit(m, DROP_UNSUPPORTED_PROTOCOL);
     m = echo(0); ip_header(m)->next_proto_id = 99; ip_checksum(m); submit(m, DROP_UNSUPPORTED_PROTOCOL);
     assert(rt.graph.nodes[NODE_UDP_INPUT].stats.packets == 1);
