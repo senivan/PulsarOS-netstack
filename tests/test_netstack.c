@@ -139,7 +139,6 @@ static struct rte_mbuf *udp_packet(const void *payload, unsigned len, uint16_t p
     return m;
 }
 
-/* Independent byte-oriented checksum oracle, including odd payload lengths. */
 static uint32_t sum_bytes(const uint8_t *data, unsigned length)
 {
     uint32_t sum = 0;
@@ -207,7 +206,6 @@ static void udp_tests(void)
         check_udp_output(payload, len, id);
         assert(rte_mempool_avail_count(rt.mbuf_pool) == 1023);
     }
-    /* Computed zero must be encoded as 0xffff, never omitted on output. */
     uint32_t pseudo_sum = sum_bytes((const uint8_t *)&rt.port.ip_be, 4) +
         sum_bytes((const uint8_t *)&address.ip_be, 4) + IPPROTO_UDP + 10 + 9000 + 50001 + 10;
     uint16_t word = (uint16_t)~folded(pseudo_sum);
@@ -237,7 +235,6 @@ static void udp_tests(void)
     m = udp_packet(payload, 13, 9000, 1);
     rte_pktmbuf_mtod_offset(m, uint8_t *, 42)[0] ^= 1;
     submit(m, DROP_UDP_BAD_CHECKSUM);
-    /* Checksum and delivery cover only the declared UDP datagram, not IP padding. */
     m = udp_packet(payload, 13, 9000, 1);
     memset(rte_pktmbuf_append(m, 7), 0xa5, 7);
     ip_header(m)->total_length = rte_cpu_to_be_16(48);
@@ -246,7 +243,6 @@ static void udp_tests(void)
     assert(ps_udp_recvfrom(&rt, 9000, received, sizeof(received), &source) == 13);
     assert(!memcmp(received, payload, 13));
 
-    /* Fill, reject, drain and wrap the receive queue without retaining mbufs. */
     for (unsigned cycle = 0; cycle < 3; cycle++) {
         for (unsigned i = 0; i < PS_UDP_RX_QUEUE_SIZE; i++) {
             uint8_t value = (uint8_t)i;
@@ -259,7 +255,7 @@ static void udp_tests(void)
         }
     }
 
-    /* Keep the original receive storage occupied and poisoned during the send. */
+    /* Hold and overwrite the RX mbuf to detect reuse or retained payload pointers. */
     m = udp_packet(payload, 13, 9000, 1);
     struct rte_mbuf *original = m, *held[1023];
     submit(m, DROP_NONE);

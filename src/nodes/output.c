@@ -31,7 +31,6 @@ void ipv4_output_node_run(struct app_runtime *rt, const struct node_frame *in,
             node_drop(rt, NODE_IPV4_OUTPUT, m, &ctx, DROP_NO_HEADROOM, 1);
             continue;
         }
-        /* Header construction follows the existing VXLAN outer-IPv4 pattern. */
         memset(ip, 0, sizeof(*ip));
         ip->version_ihl = 0x45;
         ip->total_length = rte_cpu_to_be_16((uint16_t)total);

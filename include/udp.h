@@ -2,7 +2,6 @@
 
 #include "ps_udp.h"
 
-/* Protocol/application handoff. No mbuf is retained by an endpoint. */
 struct udp_datagram {
     struct ps_addr source;
     uint16_t length;

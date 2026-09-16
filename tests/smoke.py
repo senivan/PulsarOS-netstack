@@ -93,7 +93,6 @@ def main():
                         assert reply[IP].src == "192.0.2.2" and reply[IP].dst == "192.0.2.1"
                         assert reply[IP].id != 50000 and reply[IP].ttl == 64
                         assert reply[UDP].dport == 50001 and reply[UDP].len == 8 + len(data)
-                        # Exclude minimum Ethernet frame padding from the UDP payload.
                         assert bytes(reply[UDP])[8:reply[UDP].len] == data
                         rebuilt = IP(bytes(reply[IP])[:reply[IP].len])
                         del rebuilt.chksum

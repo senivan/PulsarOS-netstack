@@ -1,7 +1,6 @@
 #include <errno.h>
 #include "neighbour.h"
 
-/* Bounded open addressing adapted from PulsarOS-dpdk-nat neigh_t.c. */
 static uint32_t hash(uint32_t x)
 {
     x ^= x >> 16;
