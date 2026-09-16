@@ -19,6 +19,7 @@ struct app_runtime {
     struct dp_graph graph;
     struct neighbour_table neighbours;
     uint64_t neighbour_learn_failures;
+    uint16_t next_ip_id;
     struct node_output *active_output;
     volatile sig_atomic_t stop;
     uint64_t tx_packets;

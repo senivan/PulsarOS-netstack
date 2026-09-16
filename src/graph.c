@@ -123,7 +123,8 @@ void graph_dump_stats(const struct app_runtime *rt)
         "none", "port_binding", "truncated_eth", "unsupported_ethertype", "invalid_arp",
         "invalid_ipv4", "ipv4_fragment", "not_local", "ipv4_options", "invalid_icmp",
         "unsupported_icmp", "unsupported_protocol", "graph_full", "tx_failed",
-        "mtu", "no_tailroom", "noncontiguous", "invalid_source"
+        "mtu", "no_tailroom", "noncontiguous", "invalid_source",
+        "neighbour_not_found", "invalid_destination"
     };
     puts("node statistics:");
     for (unsigned i = 0; i < NODE_MAX; i++) {

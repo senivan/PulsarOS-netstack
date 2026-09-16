@@ -8,11 +8,14 @@ enum drop_reason {
     DROP_IPV4_OPTIONS, DROP_INVALID_ICMP, DROP_UNSUPPORTED_ICMP,
     DROP_UNSUPPORTED_PROTOCOL, DROP_GRAPH_FULL, DROP_TX_FAILED,
     DROP_MTU, DROP_NO_TAILROOM, DROP_NONCONTIGUOUS, DROP_INVALID_SOURCE,
+    DROP_NEIGHBOUR_NOT_FOUND, DROP_INVALID_DESTINATION,
     DROP_REASON_MAX
 };
 
 struct packet_ctx {
     uint16_t ingress_port_id, egress_port_id;
     uint16_t l3_offset, l4_offset;
+    uint32_t dst_ip_be;
+    uint8_t ip_protocol;
     uint8_t drop_reason;
 };
