@@ -8,7 +8,8 @@ struct node_output;
 
 enum node_id {
     NODE_DROP, NODE_ETH_INPUT, NODE_ARP_INPUT, NODE_IPV4_INPUT,
-    NODE_ICMP_INPUT, NODE_UDP_INPUT, NODE_TCP_INPUT, NODE_TX, NODE_MAX
+    NODE_ICMP_INPUT, NODE_UDP_INPUT, NODE_TCP_INPUT,
+    NODE_IPV4_OUTPUT, NODE_ETH_OUTPUT, NODE_TX, NODE_MAX
 };
 
 struct node_stats { uint64_t packets, bytes, drops, errors; };
