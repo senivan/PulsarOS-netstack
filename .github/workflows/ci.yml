@@ -1,0 +1,39 @@
+name: Netstack correctness
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential cmake pkg-config libdpdk-dev python3-scapy iproute2
+      - name: Build and test
+        run: |
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug
+          cmake --build build -j2
+          ctest --test-dir build --output-on-failure
+      - name: Single and multiple interface smoke tests
+        run: |
+          sudo unshare --net python3 tests/smoke.py "$PWD/build/netstack-dp"
+          sudo unshare --net python3 tests/smoke.py "$PWD/build/udp-echo" --udp
+          sudo unshare --net python3 tests/smoke_multi.py "$PWD/build/udp-echo"
+      - name: ASan and UBSan
+        env:
+          ASAN_OPTIONS: detect_leaks=1
+          UBSAN_OPTIONS: halt_on_error=1
+        run: |
+          cmake -S . -B build-sanitize -DCMAKE_BUILD_TYPE=Debug \
+            -DCMAKE_C_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer" \
+            -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=address,undefined"
+          cmake --build build-sanitize -j2
+          ctest --test-dir build-sanitize --output-on-failure
