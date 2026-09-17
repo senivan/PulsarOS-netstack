@@ -22,7 +22,8 @@ void eth_input_node_run(struct app_runtime *rt, const struct node_frame *in,
     for (uint16_t i = 0; i < in->count; i++) {
         struct rte_mbuf *m = in->pkts[i];
         struct packet_ctx ctx = in->ctxs[i];
-        if (ctx.ingress_port_id != rt->port.port_id) {
+        const struct port_state *port = netif_by_dpdk_port(rt, ctx.ingress_port_id);
+        if (!port) {
             node_drop(rt, NODE_ETH_INPUT, m, &ctx, DROP_PORT_BINDING, 1);
             continue;
         }
@@ -37,12 +38,12 @@ void eth_input_node_run(struct app_runtime *rt, const struct node_frame *in,
         }
         const struct rte_ether_hdr *eth = rte_pktmbuf_mtod(m, const struct rte_ether_hdr *);
         if (!rte_is_valid_assigned_ether_addr(&eth->src_addr) ||
-            rte_is_same_ether_addr(&eth->src_addr, &rt->port.mac)) {
+            rte_is_same_ether_addr(&eth->src_addr, &port->mac)) {
             node_drop(rt, NODE_ETH_INPUT, m, &ctx, DROP_INVALID_SOURCE, 1);
             continue;
         }
         int arp = eth->ether_type == rte_cpu_to_be_16(RTE_ETHER_TYPE_ARP);
-        if (!rte_is_same_ether_addr(&eth->dst_addr, &rt->port.mac) &&
+        if (!rte_is_same_ether_addr(&eth->dst_addr, &port->mac) &&
             !(arp && rte_is_broadcast_ether_addr(&eth->dst_addr))) {
             node_drop(rt, NODE_ETH_INPUT, m, &ctx, DROP_NOT_LOCAL, 0);
             continue;
@@ -61,6 +62,11 @@ void arp_input_node_run(struct app_runtime *rt, const struct node_frame *in,
     for (uint16_t i = 0; i < in->count; i++) {
         struct rte_mbuf *m = in->pkts[i];
         struct packet_ctx ctx = in->ctxs[i];
+        const struct port_state *port = netif_by_dpdk_port(rt, ctx.ingress_port_id);
+        if (!port) {
+            node_drop(rt, NODE_ARP_INPUT, m, &ctx, DROP_PORT_BINDING, 1);
+            continue;
+        }
         uint16_t length = ctx.l3_offset + sizeof(struct rte_arp_hdr);
         if (rte_pktmbuf_data_len(m) < length) {
             node_drop(rt, NODE_ARP_INPUT, m, &ctx, DROP_INVALID_ARP, 1);
@@ -74,23 +80,23 @@ void arp_input_node_run(struct app_runtime *rt, const struct node_frame *in,
             !rte_is_same_ether_addr(&eth->src_addr, &arp->arp_data.arp_sha) ||
             (arp->arp_opcode != rte_cpu_to_be_16(RTE_ARP_OP_REQUEST) &&
              arp->arp_opcode != rte_cpu_to_be_16(RTE_ARP_OP_REPLY)) ||
-            (arp->arp_data.arp_sip && !valid_source_ip(&rt->port, arp->arp_data.arp_sip))) {
+            (arp->arp_data.arp_sip && !valid_source_ip(port, arp->arp_data.arp_sip))) {
             node_drop(rt, NODE_ARP_INPUT, m, &ctx, DROP_INVALID_ARP, 1);
             continue;
         }
-        if (arp->arp_data.arp_tip != rt->port.ip_be) {
+        if (arp->arp_data.arp_tip != port->ip_be) {
             node_drop(rt, NODE_ARP_INPUT, m, &ctx, DROP_NOT_LOCAL, 0);
             continue;
         }
         if (arp->arp_opcode == rte_cpu_to_be_16(RTE_ARP_OP_REPLY) &&
-            !rte_is_same_ether_addr(&arp->arp_data.arp_tha, &rt->port.mac)) {
+            !rte_is_same_ether_addr(&arp->arp_data.arp_tha, &port->mac)) {
             node_drop(rt, NODE_ARP_INPUT, m, &ctx, DROP_INVALID_ARP, 1);
             continue;
         }
-        uint32_t mask = rt->port.prefix_len ? UINT32_MAX << (32 - rt->port.prefix_len) : 0;
+        uint32_t mask = port->prefix_len ? UINT32_MAX << (32 - port->prefix_len) : 0;
         uint32_t sender = rte_be_to_cpu_32(arp->arp_data.arp_sip);
-        if (sender && (sender & mask) == (rte_be_to_cpu_32(rt->port.ip_be) & mask) &&
-            neighbour_learn(&rt->neighbours, arp->arp_data.arp_sip, &arp->arp_data.arp_sha) < 0)
+        if (sender && (sender & mask) == (rte_be_to_cpu_32(port->ip_be) & mask) &&
+            neighbour_learn(&rt->neighbours, port->id, arp->arp_data.arp_sip, &arp->arp_data.arp_sha) < 0)
             rt->neighbour_learn_failures++;
         if (arp->arp_opcode == rte_cpu_to_be_16(RTE_ARP_OP_REPLY)) {
             rte_pktmbuf_free(m);
@@ -99,15 +105,15 @@ void arp_input_node_run(struct app_runtime *rt, const struct node_frame *in,
         struct rte_ether_addr requester = arp->arp_data.arp_sha;
         uint32_t requester_ip = arp->arp_data.arp_sip;
         eth->dst_addr = requester;
-        eth->src_addr = rt->port.mac;
+        eth->src_addr = port->mac;
         arp->arp_opcode = rte_cpu_to_be_16(RTE_ARP_OP_REPLY);
         arp->arp_data.arp_tha = requester;
         arp->arp_data.arp_tip = requester_ip;
-        arp->arp_data.arp_sha = rt->port.mac;
-        arp->arp_data.arp_sip = rt->port.ip_be;
+        arp->arp_data.arp_sha = port->mac;
+        arp->arp_data.arp_sip = port->ip_be;
         /* Discard incoming padding; TX adds freshly zeroed Ethernet padding. */
         rte_pktmbuf_trim(m, rte_pktmbuf_pkt_len(m) - length);
-        ctx.egress_port_id = rt->port.port_id;
+        ctx.egress_port_id = port->port_id;
         node_enqueue(out, NODE_TX, m, &ctx);
     }
 }
@@ -118,6 +124,11 @@ void ipv4_input_node_run(struct app_runtime *rt, const struct node_frame *in,
     for (uint16_t i = 0; i < in->count; i++) {
         struct rte_mbuf *m = in->pkts[i];
         struct packet_ctx ctx = in->ctxs[i];
+        const struct port_state *port = netif_by_dpdk_port(rt, ctx.ingress_port_id);
+        if (!port) {
+            node_drop(rt, NODE_IPV4_INPUT, m, &ctx, DROP_PORT_BINDING, 1);
+            continue;
+        }
         if (rte_pktmbuf_data_len(m) < ctx.l3_offset + sizeof(struct rte_ipv4_hdr)) {
             node_drop(rt, NODE_IPV4_INPUT, m, &ctx, DROP_INVALID_IPV4, 1);
             continue;
@@ -132,15 +143,11 @@ void ipv4_input_node_run(struct app_runtime *rt, const struct node_frame *in,
             node_drop(rt, NODE_IPV4_INPUT, m, &ctx, DROP_INVALID_IPV4, 1);
             continue;
         }
-        if (ip->dst_addr != rt->port.ip_be) {
-            node_drop(rt, NODE_IPV4_INPUT, m, &ctx, DROP_NOT_LOCAL, 0);
-            continue;
-        }
-        if (!valid_source_ip(&rt->port, ip->src_addr)) {
+        if (!valid_source_ip(port, ip->src_addr)) {
             node_drop(rt, NODE_IPV4_INPUT, m, &ctx, DROP_INVALID_SOURCE, 1);
             continue;
         }
-        if (total > rt->port.mtu) {
+        if (total > port->mtu) {
             node_drop(rt, NODE_IPV4_INPUT, m, &ctx, DROP_MTU, 0);
             continue;
         }
@@ -150,6 +157,10 @@ void ipv4_input_node_run(struct app_runtime *rt, const struct node_frame *in,
         }
         if (ihl != sizeof(*ip)) {
             node_drop(rt, NODE_IPV4_INPUT, m, &ctx, DROP_IPV4_OPTIONS, 0);
+            continue;
+        }
+        if (!netif_is_local_ip(rt, ip->dst_addr)) {
+            node_drop(rt, NODE_IPV4_INPUT, m, &ctx, DROP_FORWARDING_DISABLED, 0);
             continue;
         }
         ctx.l4_offset = ctx.l3_offset + ihl;

@@ -68,8 +68,11 @@ ssize_t ps_udp_sendto(struct app_runtime *rt, uint16_t source_port, const void *
     if (!rt || !destination || !destination->port || (!buf && len)) return -EINVAL;
     if (rt->active_output) return -EBUSY;
     if (!endpoint(rt, source_port)) return -ENOENT;
-    if (len > PS_UDP_MAX_PAYLOAD || len + sizeof(struct rte_ipv4_hdr) +
-        sizeof(struct rte_udp_hdr) > rt->port.mtu)
+    if (len > PS_UDP_MAX_PAYLOAD)
+        return send_failure(rt, DROP_MTU, EMSGSIZE);
+    struct route_result route;
+    if (ipv4_route_lookup(rt, destination->ip_be, &route) == DROP_NONE &&
+        len + sizeof(struct rte_ipv4_hdr) + sizeof(struct rte_udp_hdr) > route.mtu)
         return send_failure(rt, DROP_MTU, EMSGSIZE);
     struct rte_mbuf *m = rte_pktmbuf_alloc(rt->mbuf_pool);
     if (!m) return send_failure(rt, DROP_MBUF_ALLOCATION_FAILED, ENOMEM);
@@ -84,8 +87,9 @@ ssize_t ps_udp_sendto(struct app_runtime *rt, uint16_t source_port, const void *
     frame.ctxs[0].src_port = source_port;
     frame.ctxs[0].dst_port = destination->port;
     frame.ctxs[0].dst_ip_be = destination->ip_be;
+    frame.ctxs[0].ip_protocol = IPPROTO_UDP;
     uint64_t sent_before = rt->tx_packets;
     /* The graph consumes the mbuf on success and failure. */
-    graph_submit(rt, NODE_UDP_OUTPUT, &frame);
+    graph_submit(rt, NODE_IPV4_ROUTE, &frame);
     return rt->tx_packets != sent_before ? (ssize_t)len : -EIO;
 }

@@ -70,7 +70,7 @@ void udp_output_node_run(struct app_runtime *rt, const struct node_frame *in,
             .version_ihl = 0x45,
             .total_length = rte_cpu_to_be_16((uint16_t)(sizeof(pseudo) + length)),
             .next_proto_id = IPPROTO_UDP,
-            .src_addr = rt->port.ip_be,
+            .src_addr = ctx.src_ip_be,
             .dst_addr = ctx.dst_ip_be
         };
         udp->dgram_cksum = rte_ipv4_udptcp_cksum(&pseudo, udp);

@@ -28,7 +28,8 @@ int main(int argc, char **argv)
     active_runtime = &rt;
     signal(SIGINT, request_stop);
     signal(SIGTERM, request_stop);
-    puts("initialized one DPDK port; entering host input loop");
+    if (rt.port_count == 1) puts("initialized one DPDK port; entering host input loop");
+    else printf("initialized %u DPDK ports; entering host input loop\n", rt.port_count);
     fflush(stdout);
     int rc = app_run(&rt);
     app_dump_stats(&rt);
