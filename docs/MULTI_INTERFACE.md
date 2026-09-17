@@ -16,7 +16,8 @@ signatures and legacy configuration files remain compatible.
 Interface IDs follow configuration order. DPDK port IDs are resolved by device
 name and need not match interface IDs. The existing packet-context ingress and
 egress fields contain DPDK port IDs. Neighbours are keyed by interface ID and IP.
-The bounded neighbour table still uses passive ARP learning and has no expiry.
+The bounded resolved-neighbour table has no expiry. A lookup miss starts active
+ARP resolution on the selected interface, using a separate pending table.
 
 Each configured prefix installs a connected route in a bounded, linearly scanned
 table. Longest prefix wins; configuration order breaks equal-prefix ties.
@@ -46,7 +47,24 @@ interface, and returning local-address metadata on receive, remain unsupported.
 
 RX UDP payloads are still copied into bounded queues and the receive mbuf is
 freed once. UDP sends allocate a new mbuf and transfer ownership to the graph.
-The graph frees rejected packets and TX retains ownership only of accepted ones.
+On a neighbour miss, ETH_OUTPUT transfers that mbuf and its context to the
+pending queue. Validated ARP replies or requests update the neighbour and release
+queued packets directly to ETH_OUTPUT; IPv4 and UDP headers are retained.
+
+There are 16 pending slots, with eight packets per neighbour. Each slot sends at
+most three ARP requests, one second apart, and times out one interval after the
+last attempt. Failed ARP allocation or TX consumes an attempt too. Maintenance
+runs after RX polling in `app_step()` using DPDK monotonic timer cycles, without
+blocking. Packets sharing a pending neighbour do not trigger extra requests or
+extend its deadline. Queue-full, table-full, timeout and shutdown cancellation
+have separate drop counters. Timeout and shutdown free every retained mbuf.
+
+`ps_udp_sendto()` success now means accepted for transmission or queued for
+neighbour resolution. It never waits for ARP. Later timeout or TX failure is
+reported through counters, without application completion events. Queued packets
+are counted as accepted once; transmitting an ARP request cannot itself make a
+UDP send successful. Failed resolved-table insertion leaves the pending packets
+subject to the same bounded timeout policy.
 
 ## Validation
 
@@ -57,6 +75,7 @@ On Linux with Scapy and iproute2, run these in an isolated network namespace:
 sudo unshare --net python3 tests/smoke.py "$PWD/build/netstack-dp"
 sudo unshare --net python3 tests/smoke.py "$PWD/build/udp-echo" --udp
 sudo unshare --net python3 tests/smoke_multi.py "$PWD/build/udp-echo"
+sudo unshare --net python3 tests/smoke_arp.py "$PWD/build/test-udp-initiator"
 ```
 
 CI also runs the unit suites under ASan/UBSan. The packet suite covers independent
@@ -64,9 +83,11 @@ ARP/ICMP/UDP operation, route selection and ties, interface-scoped neighbours,
 invalid egress, mixed-port TX failures and mbuf returns. The two-link AF_PACKET
 smoke checks both interfaces and rejects cross-interface forwarding in both
 directions. It is a functional test, not a physical-NIC benchmark.
+The active-ARP suite covers a silent peer, shared lookups, interface scoping,
+retry deadlines, timeout, both capacity limits, malformed ARP and failure-path
+ownership. CI also runs the silent-peer smoke under ASan/UBSan.
 
 A future forwarding node can branch at the IPv4 local-delivery decision and use
 the same route and neighbour lookups. It will need explicit enablement, TTL
-decrement/checksum updates, MTU policy and ICMP error handling. Gateway routes and
-active neighbour resolution require separate decisions; no forwarding is enabled
-by adding a second interface today.
+decrement/checksum updates, MTU policy and ICMP error handling. Gateway routes
+remain unconfigured; no forwarding is enabled by adding a second interface today.

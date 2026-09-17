@@ -13,6 +13,8 @@ enum drop_reason {
     DROP_UDP_UNBOUND_PORT, DROP_UDP_RX_QUEUE_FULL,
     DROP_MBUF_ALLOCATION_FAILED, DROP_NO_HEADROOM,
     DROP_NO_ROUTE, DROP_INVALID_EGRESS, DROP_FORWARDING_DISABLED,
+    DROP_NEIGHBOUR_QUEUE_FULL, DROP_NEIGHBOUR_PENDING_FULL,
+    DROP_NEIGHBOUR_RESOLUTION_TIMEOUT, DROP_NEIGHBOUR_CANCELLED,
     DROP_REASON_MAX
 };
 
@@ -23,4 +25,5 @@ struct packet_ctx {
     uint16_t src_port, dst_port; /* Host order, for locally generated UDP. */
     uint8_t ip_protocol;
     uint8_t drop_reason;
+    uint8_t report_acceptance;
 };

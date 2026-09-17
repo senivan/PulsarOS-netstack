@@ -23,12 +23,14 @@ struct app_runtime {
     struct route_table routes;
     struct dp_graph graph;
     struct neighbour_table neighbours;
+    struct neighbour_pending pending_neighbours;
     struct udp_endpoints udp;
     uint64_t neighbour_learn_failures;
     uint16_t next_ip_id;
     struct node_output *active_output;
     volatile sig_atomic_t stop;
     uint64_t tx_packets;
+    uint64_t accepted_sends;
 };
 
 struct port_state *netif_by_dpdk_port(struct app_runtime *rt, uint16_t port_id);

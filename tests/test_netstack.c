@@ -281,9 +281,11 @@ static void udp_tests(void)
     rte_pktmbuf_free(original);
 
     struct ps_addr unknown = { .ip_be = rte_cpu_to_be_32(RTE_IPV4(192u, 0, 2, 3)), .port = 1 };
-    uint64_t before = rt.graph.drop_reasons[DROP_NEIGHBOUR_NOT_FOUND];
-    assert(ps_udp_sendto(&rt, 9000, payload, 1, &unknown) == -EIO);
-    assert(rt.graph.drop_reasons[DROP_NEIGHBOUR_NOT_FOUND] == before + 1);
+    uint64_t before = rt.accepted_sends;
+    assert(ps_udp_sendto(&rt, 9000, payload, 1, &unknown) == 1);
+    assert(rt.accepted_sends == before + 1);
+    neighbour_fini(&rt);
+    assert(rte_mempool_avail_count(rt.mbuf_pool) == 1023);
     unknown.ip_be = rte_cpu_to_be_32(RTE_IPV4(192u, 0, 2, 255));
     before = rt.graph.drop_reasons[DROP_INVALID_DESTINATION];
     assert(ps_udp_sendto(&rt, 9000, payload, 1, &unknown) == -EIO);
@@ -487,9 +489,11 @@ static void multi_tests(void)
         assert(folded(sum + sum_bytes((const uint8_t *)udp, 8 + sizeof(payload))) == UINT16_MAX);
         assert(!memcmp(udp + 1, payload, sizeof(payload)));
         source.ip_be = rte_cpu_to_be_32(rte_be_to_cpu_32(peer_ip_on(p)) + 20);
-        uint64_t before = rt.graph.drop_reasons[DROP_NEIGHBOUR_NOT_FOUND];
-        assert(ps_udp_sendto(&rt, 9000, payload, sizeof(payload), &source) == -EIO);
-        assert(rt.graph.drop_reasons[DROP_NEIGHBOUR_NOT_FOUND] == before + 1);
+        uint64_t before = rt.accepted_sends;
+        assert(ps_udp_sendto(&rt, 9000, payload, sizeof(payload), &source) == sizeof(payload));
+        assert(rt.accepted_sends == before + 1);
+        neighbour_fini(&rt);
+        assert(rte_mempool_avail_count(rt.mbuf_pool) == 1023);
     }
     struct rte_mbuf *asymmetric = echo(3);
     ip_header(asymmetric)->src_addr = peer_ip_on(1);

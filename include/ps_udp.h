@@ -22,7 +22,8 @@ int ps_udp_bind(struct app_runtime *rt, uint16_t port);
 ssize_t ps_udp_recvfrom(struct app_runtime *rt, uint16_t port, void *buf,
                         size_t len, struct ps_addr *src);
 
-/* Copies buf; success means DPDK accepted the packet. Errors are negative errno.
+/* Copies buf; success means accepted by TX or queued for neighbour resolution.
+ * Queued packets may later time out. Errors are negative errno.
  * For -EIO, see drop-reason counters. Call between app_step() calls. */
 ssize_t ps_udp_sendto(struct app_runtime *rt, uint16_t source_port, const void *buf,
                       size_t len, const struct ps_addr *dst);

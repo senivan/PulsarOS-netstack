@@ -13,6 +13,7 @@ static inline void node_drop(struct app_runtime *rt, enum node_id node,
 
 void drop_node_run(struct app_runtime *, const struct node_frame *, struct node_output *);
 void eth_input_node_run(struct app_runtime *, const struct node_frame *, struct node_output *);
+void arp_output_node_run(struct app_runtime *, const struct node_frame *, struct node_output *);
 void arp_input_node_run(struct app_runtime *, const struct node_frame *, struct node_output *);
 void ipv4_input_node_run(struct app_runtime *, const struct node_frame *, struct node_output *);
 void icmp_input_node_run(struct app_runtime *, const struct node_frame *, struct node_output *);

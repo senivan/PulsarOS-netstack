@@ -1,5 +1,6 @@
 #include <string.h>
 #include <rte_ip.h>
+#include <rte_cycles.h>
 #include "internal.h"
 
 void ipv4_route_node_run(struct app_runtime *rt, const struct node_frame *in,
@@ -75,7 +76,8 @@ void eth_output_node_run(struct app_runtime *rt, const struct node_frame *in,
         }
         struct rte_ether_addr destination;
         if (neighbour_lookup(&rt->neighbours, port->id, ctx.next_hop_ip_be, &destination) < 0) {
-            node_drop(rt, NODE_ETH_OUTPUT, m, &ctx, DROP_NEIGHBOUR_NOT_FOUND, 0);
+            enum drop_reason reason = neighbour_queue(rt, port->id, m, &ctx, rte_get_timer_cycles());
+            if (reason != DROP_NONE) node_drop(rt, NODE_ETH_OUTPUT, m, &ctx, reason, 0);
             continue;
         }
         struct rte_ether_hdr *eth = (struct rte_ether_hdr *)rte_pktmbuf_prepend(m, sizeof(*eth));

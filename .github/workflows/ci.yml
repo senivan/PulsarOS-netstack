@@ -27,6 +27,7 @@ jobs:
           sudo unshare --net python3 tests/smoke.py "$PWD/build/netstack-dp"
           sudo unshare --net python3 tests/smoke.py "$PWD/build/udp-echo" --udp
           sudo unshare --net python3 tests/smoke_multi.py "$PWD/build/udp-echo"
+          sudo unshare --net python3 tests/smoke_arp.py "$PWD/build/test-udp-initiator"
       - name: ASan and UBSan
         env:
           ASAN_OPTIONS: detect_leaks=1
@@ -37,3 +38,5 @@ jobs:
             -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=address,undefined"
           cmake --build build-sanitize -j2
           ctest --test-dir build-sanitize --output-on-failure
+          sudo env ASAN_OPTIONS=detect_leaks=1 UBSAN_OPTIONS=halt_on_error=1 \
+            unshare --net python3 tests/smoke_arp.py "$PWD/build-sanitize/test-udp-initiator"

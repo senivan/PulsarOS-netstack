@@ -10,6 +10,7 @@ void nodes_register(struct app_runtime *rt)
 {
     register_node(rt, NODE_DROP, "drop", drop_node_run);
     register_node(rt, NODE_ETH_INPUT, "eth_input", eth_input_node_run);
+    register_node(rt, NODE_ARP_OUTPUT, "arp_output", arp_output_node_run);
     register_node(rt, NODE_ARP_INPUT, "arp_input", arp_input_node_run);
     register_node(rt, NODE_IPV4_INPUT, "ipv4_input", ipv4_input_node_run);
     register_node(rt, NODE_ICMP_INPUT, "icmp_input", icmp_input_node_run);

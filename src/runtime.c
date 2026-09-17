@@ -2,6 +2,7 @@
 #include <string.h>
 #include <rte_eal.h>
 #include <rte_pause.h>
+#include <rte_cycles.h>
 #include "dpdk_port.h"
 
 struct port_state *netif_by_dpdk_port(struct app_runtime *rt, uint16_t id)
@@ -50,6 +51,7 @@ unsigned app_step(struct app_runtime *rt)
         port->rx_packets += frame.count;
         if (frame.count) graph_submit(rt, NODE_ETH_INPUT, &frame);
     }
+    neighbour_tick(rt, rte_get_timer_cycles());
     return received;
 }
 
@@ -80,6 +82,7 @@ void app_dump_stats(const struct app_runtime *rt)
 
 void app_fini(struct app_runtime *rt)
 {
+    neighbour_fini(rt);
     port_fini(rt);
     rte_eal_cleanup();
 }
