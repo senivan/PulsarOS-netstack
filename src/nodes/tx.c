@@ -43,6 +43,8 @@ void tx_node_run(struct app_runtime *rt, const struct node_frame *in, struct nod
         }
         if (!n) continue;
         uint16_t sent = rte_eth_tx_burst(port->port_id, 0, batch, n);
+        for (uint16_t i = 0; i < sent; i++)
+            if (contexts[indices[i]].report_acceptance) rt->accepted_sends++;
         rt->tx_packets += sent;
         port->tx_packets += sent;
         port->tx_drops += n - sent;

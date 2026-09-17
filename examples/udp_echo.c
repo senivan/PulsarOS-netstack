@@ -42,6 +42,7 @@ int main(int argc, char **argv)
             if (sent < 0) fprintf(stderr, "UDP send failed: %zd\n", sent);
         }
     }
+    neighbour_fini(&rt);
     app_dump_stats(&rt);
     app_fini(&rt);
     return 0;

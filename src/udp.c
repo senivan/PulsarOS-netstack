@@ -88,8 +88,9 @@ ssize_t ps_udp_sendto(struct app_runtime *rt, uint16_t source_port, const void *
     frame.ctxs[0].dst_port = destination->port;
     frame.ctxs[0].dst_ip_be = destination->ip_be;
     frame.ctxs[0].ip_protocol = IPPROTO_UDP;
-    uint64_t sent_before = rt->tx_packets;
+    frame.ctxs[0].report_acceptance = 1;
+    uint64_t accepted_before = rt->accepted_sends;
     /* The graph consumes the mbuf on success and failure. */
     graph_submit(rt, NODE_IPV4_ROUTE, &frame);
-    return rt->tx_packets != sent_before ? (ssize_t)len : -EIO;
+    return rt->accepted_sends != accepted_before ? (ssize_t)len : -EIO;
 }

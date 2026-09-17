@@ -32,6 +32,7 @@ int main(int argc, char **argv)
     else printf("initialized %u DPDK ports; entering host input loop\n", rt.port_count);
     fflush(stdout);
     int rc = app_run(&rt);
+    neighbour_fini(&rt);
     app_dump_stats(&rt);
     app_fini(&rt);
     active_runtime = NULL;
