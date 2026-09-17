@@ -126,7 +126,7 @@ void graph_dump_stats(const struct app_runtime *rt)
         "mtu", "no_tailroom", "noncontiguous", "invalid_source",
         "neighbour_not_found", "invalid_destination", "invalid_udp", "udp_bad_length",
         "udp_bad_checksum", "udp_unbound_port", "udp_rx_queue_full",
-        "mbuf_allocation_failed", "no_headroom"
+        "mbuf_allocation_failed", "no_headroom", "no_route", "invalid_egress", "forwarding_disabled"
     };
     puts("node statistics:");
     for (unsigned i = 0; i < NODE_MAX; i++) {

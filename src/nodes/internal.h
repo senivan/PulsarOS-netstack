@@ -2,6 +2,8 @@
 
 #include "runtime.h"
 
+void ipv4_route_node_run(struct app_runtime *, const struct node_frame *, struct node_output *);
+
 static inline void node_drop(struct app_runtime *rt, enum node_id node,
                              struct rte_mbuf *m, struct packet_ctx *ctx,
                              enum drop_reason reason, int error)
