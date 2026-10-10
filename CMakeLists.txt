@@ -9,7 +9,7 @@ pkg_check_modules(DPDK REQUIRED IMPORTED_TARGET libdpdk>=22.11)
 add_library(netstack STATIC
   src/config.c src/dpdk_port.c src/graph.c src/runtime.c src/neighbour.c src/neighbour_resolution.c src/udp.c src/route.c src/icmp_error.c
   src/nodes/arp.c src/nodes/drop.c src/nodes/ingress.c src/nodes/icmp.c
-  src/nodes/register.c src/nodes/tx.c src/nodes/output.c src/nodes/udp.c)
+  src/nodes/register.c src/nodes/tx.c src/nodes/output.c src/nodes/udp.c src/nodes/forward.c)
 target_include_directories(netstack PUBLIC include)
 target_link_libraries(netstack PUBLIC PkgConfig::DPDK)
 target_compile_options(netstack PRIVATE -Wall -Wextra -Wpedantic -Werror)

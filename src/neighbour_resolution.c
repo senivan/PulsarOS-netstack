@@ -19,18 +19,22 @@ static void release_pending(struct app_runtime *rt, struct pending_neighbour *pe
 }
 
 static void discard_pending(struct app_runtime *rt, struct pending_neighbour *pending,
-                            enum drop_reason reason)
+                            enum drop_reason reason, uint64_t now)
 {
-    /* Teardown also works before graph initialization and never queues more work. */
-    for (uint16_t i = 0; i < pending->count; i++) {
-        rt->graph.nodes[NODE_DROP].stats.bytes += rte_pktmbuf_pkt_len(pending->packets[i]);
-        rte_pktmbuf_free(pending->packets[i]);
-    }
-    rt->graph.nodes[NODE_DROP].stats.packets += pending->count;
-    rt->graph.nodes[NODE_DROP].stats.drops += pending->count;
-    rt->graph.nodes[NODE_ETH_OUTPUT].stats.drops += pending->count;
-    rt->graph.drop_reasons[reason] += pending->count;
+    struct pending_neighbour detached = *pending;
     memset(pending, 0, sizeof(*pending));
+    /* Error output may reuse the detached entry for return-path resolution. */
+    rt->graph.nodes[NODE_DROP].stats.packets += detached.count;
+    rt->graph.nodes[NODE_DROP].stats.drops += detached.count;
+    rt->graph.nodes[NODE_ETH_OUTPUT].stats.drops += detached.count;
+    rt->graph.drop_reasons[reason] += detached.count;
+    for (uint16_t i = 0; i < detached.count; i++) {
+        struct rte_mbuf *m = detached.packets[i];
+        if (reason == DROP_NEIGHBOUR_RESOLUTION_TIMEOUT && detached.contexts[i].transit)
+            icmp_send_error(rt, m, &detached.contexts[i], 3, 1, 0, now);
+        rt->graph.nodes[NODE_DROP].stats.bytes += rte_pktmbuf_pkt_len(m);
+        rte_pktmbuf_free(m);
+    }
 }
 
 enum drop_reason neighbour_queue(struct app_runtime *rt, uint16_t netif_id,
@@ -85,7 +89,7 @@ void neighbour_tick(struct app_runtime *rt, uint64_t now)
         if (!pending->count) continue;
         const struct port_state *port = netif_by_id(rt, pending->netif_id);
         if (!port || !port->started) {
-            discard_pending(rt, pending, DROP_INVALID_EGRESS);
+            discard_pending(rt, pending, DROP_INVALID_EGRESS, now);
             continue;
         }
         struct rte_ether_addr mac;
@@ -95,7 +99,7 @@ void neighbour_tick(struct app_runtime *rt, uint64_t now)
         }
         if (now - pending->last_request < rte_get_timer_hz() * ARP_RETRY_SECONDS) continue;
         if (pending->requests == ARP_MAX_REQUESTS) {
-            discard_pending(rt, pending, DROP_NEIGHBOUR_RESOLUTION_TIMEOUT);
+            discard_pending(rt, pending, DROP_NEIGHBOUR_RESOLUTION_TIMEOUT, now);
             continue;
         }
         pending->requests++;
@@ -107,7 +111,7 @@ void neighbour_tick(struct app_runtime *rt, uint64_t now)
 void neighbour_fini(struct app_runtime *rt)
 {
     for (unsigned i = 0; i < NEIGHBOUR_PENDING_MAX; i++)
-        discard_pending(rt, &rt->pending_neighbours.entries[i], DROP_NEIGHBOUR_CANCELLED);
+        discard_pending(rt, &rt->pending_neighbours.entries[i], DROP_NEIGHBOUR_CANCELLED, 0);
 }
 
 _Static_assert(NEIGHBOUR_PENDING_QUEUE_MAX <= GRAPH_FRAME_SIZE, "pending queue must fit a graph frame");

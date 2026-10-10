@@ -127,7 +127,8 @@ void graph_dump_stats(const struct app_runtime *rt)
         "neighbour_not_found", "invalid_destination", "invalid_udp", "udp_bad_length",
         "udp_bad_checksum", "udp_unbound_port", "udp_rx_queue_full",
         "mbuf_allocation_failed", "no_headroom", "no_route", "invalid_egress", "forwarding_disabled",
-        "neighbour_queue_full", "neighbour_pending_full", "neighbour_resolution_timeout", "neighbour_cancelled"
+        "neighbour_queue_full", "neighbour_pending_full", "neighbour_resolution_timeout", "neighbour_cancelled",
+        "ttl_expired"
     };
     puts("node statistics:");
     for (unsigned i = 0; i < NODE_MAX; i++) {

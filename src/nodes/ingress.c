@@ -137,12 +137,12 @@ void ipv4_input_node_run(struct app_runtime *rt, const struct node_frame *in,
         uint16_t total = rte_be_to_cpu_16(ip->total_length);
         if ((ip->version_ihl >> 4) != 4 || ihl < sizeof(*ip) || total < ihl ||
             rte_pktmbuf_data_len(m) < ctx.l3_offset + total ||
-            ip->time_to_live == 0 || rte_ipv4_cksum(ip) != 0 ||
+            rte_ipv4_cksum(ip) != 0 ||
             (rte_be_to_cpu_16(ip->fragment_offset) & 0x8000)) {
             node_drop(rt, NODE_IPV4_INPUT, m, &ctx, DROP_INVALID_IPV4, 1);
             continue;
         }
-        if (!valid_source_ip(port, ip->src_addr)) {
+        if (!valid_source_ip(port, ip->src_addr) || netif_is_local_ip(rt, ip->src_addr)) {
             node_drop(rt, NODE_IPV4_INPUT, m, &ctx, DROP_INVALID_SOURCE, 1);
             continue;
         }
@@ -158,12 +158,29 @@ void ipv4_input_node_run(struct app_runtime *rt, const struct node_frame *in,
             node_drop(rt, NODE_IPV4_INPUT, m, &ctx, DROP_IPV4_OPTIONS, 0);
             continue;
         }
+        ctx.l4_offset = ctx.l3_offset + ihl;
+        ctx.src_ip_be = ip->src_addr;
+        ctx.dst_ip_be = ip->dst_addr;
+        ctx.ip_protocol = ip->next_proto_id;
+        rte_pktmbuf_trim(m, rte_pktmbuf_pkt_len(m) - (ctx.l3_offset + total));
         if (!netif_is_local_ip(rt, ip->dst_addr)) {
-            node_drop(rt, NODE_IPV4_INPUT, m, &ctx, DROP_FORWARDING_DISABLED, 0);
+            if (!rt->ipv4_forwarding) {
+                node_drop(rt, NODE_IPV4_INPUT, m, &ctx, DROP_FORWARDING_DISABLED, 0);
+                continue;
+            }
+            uint32_t src = rte_be_to_cpu_32(ip->src_addr), dst = rte_be_to_cpu_32(ip->dst_addr);
+            if (!ipv4_destination_valid(rt, ip->src_addr) || (src >> 16) == 0xa9fe) {
+                node_drop(rt, NODE_IPV4_INPUT, m, &ctx, DROP_INVALID_SOURCE, 0);
+                continue;
+            }
+            if (!ipv4_destination_valid(rt, ip->dst_addr) || (dst >> 16) == 0xa9fe) {
+                node_drop(rt, NODE_IPV4_INPUT, m, &ctx, DROP_INVALID_DESTINATION, 0);
+                continue;
+            }
+            ctx.transit = 1;
+            node_enqueue(out, NODE_IPV4_FORWARD, m, &ctx);
             continue;
         }
-        ctx.l4_offset = ctx.l3_offset + ihl;
-        rte_pktmbuf_trim(m, rte_pktmbuf_pkt_len(m) - (ctx.l3_offset + total));
         switch (ip->next_proto_id) {
         case IPPROTO_ICMP: node_enqueue(out, NODE_ICMP_INPUT, m, &ctx); break;
         case IPPROTO_UDP: node_enqueue(out, NODE_UDP_INPUT, m, &ctx); break;
