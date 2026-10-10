@@ -27,6 +27,7 @@ struct app_runtime {
     struct neighbour_pending pending_neighbours;
     struct udp_endpoints udp;
     struct icmp_error_state icmp_errors;
+    uint8_t ipv4_forwarding;
     uint64_t neighbour_learn_failures;
     uint16_t next_ip_id;
     struct node_output *active_output;

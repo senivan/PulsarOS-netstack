@@ -227,6 +227,257 @@ static void error_tests(void)
     reset();
 }
 
+static void submit(struct rte_mbuf *m, unsigned ingress, enum drop_reason reason)
+{
+    struct rte_ether_hdr *eth = rte_pktmbuf_mtod(m, struct rte_ether_hdr *);
+    eth->src_addr = peers[ingress];
+    eth->dst_addr = rt.ports[ingress].mac;
+    struct node_frame frame = { .count = 1 };
+    frame.pkts[0] = m;
+    frame.ctxs[0].ingress_port_id = rt.ports[ingress].port_id;
+    uint64_t before = rt.graph.drop_reasons[reason];
+    assert(graph_submit(&rt, NODE_ETH_INPUT, &frame) == 0);
+    assert(rt.graph.drop_reasons[reason] == before + (reason != DROP_NONE));
+}
+
+static struct pending_neighbour *pending(unsigned netif, uint32_t ip_be)
+{
+    for (unsigned i = 0; i < NEIGHBOUR_PENDING_MAX; i++) {
+        struct pending_neighbour *entry = &rt.pending_neighbours.entries[i];
+        if (entry->count && entry->netif_id == rt.ports[netif].id && entry->ip_be == ip_be) return entry;
+    }
+    return NULL;
+}
+
+static void arp_reply(unsigned ingress, uint32_t ip_be)
+{
+    struct rte_mbuf *m = rte_pktmbuf_alloc(rt.mbuf_pool);
+    assert(m);
+    struct rte_ether_hdr *eth = (struct rte_ether_hdr *)rte_pktmbuf_append(m, 42);
+    assert(eth);
+    memset(eth, 0, 42);
+    eth->ether_type = rte_cpu_to_be_16(RTE_ETHER_TYPE_ARP);
+    struct rte_arp_hdr *arp = (struct rte_arp_hdr *)(eth + 1);
+    arp->arp_hardware = rte_cpu_to_be_16(RTE_ARP_HRD_ETHER);
+    arp->arp_protocol = rte_cpu_to_be_16(RTE_ETHER_TYPE_IPV4);
+    arp->arp_hlen = 6;
+    arp->arp_plen = 4;
+    arp->arp_opcode = rte_cpu_to_be_16(RTE_ARP_OP_REPLY);
+    arp->arp_data.arp_sha = peers[ingress];
+    arp->arp_data.arp_sip = ip_be;
+    arp->arp_data.arp_tha = rt.ports[ingress].mac;
+    arp->arp_data.arp_tip = rt.ports[ingress].ip_be;
+    submit(m, ingress, DROP_NONE);
+}
+
+static void check_forward(unsigned index, unsigned egress, const void *original, unsigned length)
+{
+    assert(index < capture_count && captures[index].port == rt.ports[egress].port_id);
+    const struct rte_ether_hdr *eth = (const struct rte_ether_hdr *)captures[index].data;
+    const uint8_t *ip = captures[index].data + 14, *before = original;
+    assert(rte_is_same_ether_addr(&eth->src_addr, &rt.ports[egress].mac));
+    assert(rte_is_same_ether_addr(&eth->dst_addr, &peers[egress]));
+    assert(sum(ip, 20) == UINT16_MAX && ip[8] == before[8] - 1);
+    for (unsigned i = 0; i < length; i++)
+        if (i != 8 && i != 10 && i != 11) assert(ip[i] == before[i]);
+    assert(captures[index].length == RTE_MAX(60, 14 + length));
+    for (unsigned i = 14 + length; i < captures[index].length; i++) assert(!captures[index].data[i]);
+}
+
+static void forwarding_tests(void)
+{
+    /* RFC 1812 5.3.1: transit TTL decrements once; local TTL is not a filter. */
+    reset();
+    rt.ipv4_forwarding = 0;
+    submit(packet(A, B, 64, IPPROTO_UDP, 28), 0, DROP_FORWARDING_DISABLED);
+    assert(!capture_count && !rt.icmp_errors.generated);
+    rt.ipv4_forwarding = 1;
+    const uint8_t protocols[] = {IPPROTO_ICMP, IPPROTO_UDP, IPPROTO_TCP, 99};
+    const uint8_t ttls[] = {2, 64, 255};
+    for (unsigned p = 0; p < 2; p++) for (unsigned j = 0; j < RTE_DIM(protocols); j++) {
+        for (unsigned t = 0; t < RTE_DIM(ttls); t++) {
+            struct rte_mbuf *m = packet(p ? B : A, p ? A : B, ttls[t], protocols[j], 101);
+            uint8_t original[101];
+            memcpy(original, header(m), sizeof(original));
+            unsigned index = capture_count;
+            submit(m, p, DROP_NONE);
+            check_forward(index, 1 - p, original, sizeof(original));
+        }
+    }
+    assert(!rt.graph.nodes[NODE_ICMP_INPUT].stats.packets && !rt.graph.nodes[NODE_UDP_INPUT].stats.packets &&
+           !rt.graph.nodes[NODE_TCP_INPUT].stats.packets);
+    struct rte_mbuf *m = packet(A, B, 2, 99, 28);
+    memset(rte_pktmbuf_append(m, 16), 0xa5, 16);
+    uint8_t original[28];
+    memcpy(original, header(m), sizeof(original));
+    submit(m, 0, DROP_NONE);
+    check_forward(capture_count - 1, 1, original, sizeof(original));
+    m = packet(A, B, 2, 99, 28);
+    struct rte_ipv4_hdr expected = *header(m);
+    expected.time_to_live--;
+    expected.hdr_checksum = 0;
+    unsigned id;
+    for (id = 0; id <= UINT16_MAX; id++) {
+        expected.packet_id = rte_cpu_to_be_16((uint16_t)id);
+        if (rte_ipv4_cksum(&expected) == 0) break;
+    }
+    assert(id <= UINT16_MAX);
+    header(m)->packet_id = expected.packet_id;
+    checksum(m);
+    memcpy(original, header(m), sizeof(original));
+    submit(m, 0, DROP_NONE);
+    check_forward(capture_count - 1, 1, original, sizeof(original));
+    assert(((const struct rte_ipv4_hdr *)(captures[capture_count - 1].data + 14))->hdr_checksum == 0);
+    for (unsigned ttl = 0; ttl <= 1; ttl++) {
+        m = packet(A, B, ttl, IPPROTO_UDP, 28);
+        memcpy(original, header(m), sizeof(original));
+        submit(m, 0, DROP_TTL_EXPIRED);
+        check_error(capture_count - 1, rt.ports[0].port_id, A, 11, 0, 0, original, sizeof(original));
+        m = packet(A, rt.ports[0].ip_be, ttl, IPPROTO_ICMP, 28);
+        uint8_t *icmp = (uint8_t *)(header(m) + 1);
+        memset(icmp, 0, 8);
+        icmp[0] = 8;
+        uint16_t ck = (uint16_t)~rte_raw_cksum(icmp, 8);
+        memcpy(icmp + 2, &ck, sizeof(ck));
+        submit(m, 0, DROP_NONE);
+        assert(captures[capture_count - 1].data[34] == 0);
+    }
+
+    reset();
+    for (unsigned gateway = 0; gateway <= 1; gateway++) {
+        assert(route_init_connected(&rt) == 0);
+        assert(route_add_gateway(&rt.routes, REMOTE, 24, rt.ports[1].id, gateway ? B : 0) == 0);
+        if (!gateway) assert(neighbour_learn(&rt.neighbours, rt.ports[1].id, REMOTE, &peers[1]) == 0);
+        m = packet(A, REMOTE, 64, 99, 28);
+        memcpy(original, header(m), sizeof(original));
+        submit(m, 0, DROP_NONE);
+        check_forward(capture_count - 1, 1, original, sizeof(original));
+    }
+    assert(route_init_connected(&rt) == 0);
+    assert(route_add_gateway(&rt.routes, 0, 0, rt.ports[1].id, B) == 0);
+    m = packet(A, REMOTE, 64, 99, 28);
+    memcpy(original, header(m), sizeof(original));
+    submit(m, 0, DROP_NONE);
+    check_forward(capture_count - 1, 1, original, sizeof(original));
+    assert(route_add_gateway(&rt.routes, REMOTE, 32, rt.ports[0].id, A) == 0);
+    m = packet(A, REMOTE, 64, 99, 28);
+    memcpy(original, header(m), sizeof(original));
+    submit(m, 0, DROP_NONE);
+    check_forward(capture_count - 1, 0, original, sizeof(original));
+
+    reset();
+    m = packet(A, REMOTE, 64, 99, 28);
+    memcpy(original, header(m), sizeof(original));
+    submit(m, 0, DROP_NO_ROUTE);
+    check_error(0, rt.ports[0].port_id, A, 3, 0, 0, original, sizeof(original));
+    assert(route_add(&rt.routes, REMOTE, 32, UINT16_MAX) == 0);
+    submit(packet(A, REMOTE, 64, 99, 28), 0, DROP_INVALID_EGRESS);
+    assert(rt.icmp_errors.generated == 2);
+    submit(packet(A, REMOTE, 1, 99, 28), 0, DROP_TTL_EXPIRED);
+    assert(rt.graph.drop_reasons[DROP_INVALID_EGRESS] == 1);
+    reset();
+    rt.ports[1].mtu = 100;
+    submit(packet(A, B, 64, 99, 100), 0, DROP_NONE);
+    m = packet(A, B, 64, IPPROTO_UDP, 101);
+    uint8_t quote[101];
+    memcpy(quote, header(m), sizeof(quote));
+    submit(m, 0, DROP_MTU);
+    check_error(1, rt.ports[0].port_id, A, 3, 4, 100, quote, sizeof(quote));
+    m = packet(A, B, 64, 99, 101);
+    header(m)->fragment_offset = 0;
+    checksum(m);
+    submit(m, 0, DROP_MTU);
+    assert(capture_count == 2 && rt.graph.drop_reasons[DROP_MTU] == 2);
+    rt.ports[1].mtu = 1500;
+
+    reset();
+    /* RFC 2644 and RFC 3927: a default route cannot bypass address restrictions. */
+    assert(route_add_gateway(&rt.routes, 0, 0, rt.ports[1].id, B) == 0);
+    const uint32_t invalid[] = {0, rte_cpu_to_be_32(0x7f000001), rte_cpu_to_be_32(0xe0000001),
+        rte_cpu_to_be_32(0xffffffff), rte_cpu_to_be_32(0xc00002ff), rte_cpu_to_be_32(0xc63364ff),
+        rte_cpu_to_be_32(0xa9fe0101)};
+    for (unsigned i = 0; i < RTE_DIM(invalid); i++)
+        submit(packet(A, invalid[i], 64, 99, 28), 0, DROP_INVALID_DESTINATION);
+    submit(packet(rte_cpu_to_be_32(0xa9fe0101), B, 64, 99, 28), 0, DROP_INVALID_SOURCE);
+    submit(packet(rt.ports[1].ip_be, B, 64, 99, 28), 0, DROP_INVALID_SOURCE);
+    m = packet(A, B, 64, 99, 60);
+    header(m)->version_ihl = 0x4f;
+    checksum(m);
+    submit(m, 0, DROP_IPV4_OPTIONS);
+    m = packet(A, B, 64, 99, 28);
+    header(m)->version_ihl = 0x4f;
+    submit(m, 0, DROP_INVALID_IPV4);
+    m = packet(A, B, 64, 99, 28);
+    header(m)->fragment_offset = rte_cpu_to_be_16(RTE_IPV4_HDR_MF_FLAG);
+    checksum(m);
+    submit(m, 0, DROP_IPV4_FRAGMENT);
+    assert(!capture_count && !rt.icmp_errors.generated);
+    m = packet(A, B, 1, IPPROTO_ICMP, 28);
+    ((uint8_t *)(header(m) + 1))[0] = 3;
+    submit(m, 0, DROP_TTL_EXPIRED);
+    assert(rt.icmp_errors.suppressed == 1 && !capture_count);
+    reset();
+    tx_limit = 0;
+    submit(packet(A, B, 64, 99, 28), 0, DROP_TX_FAILED);
+    reset();
+}
+
+static void forwarding_resolution_tests(void)
+{
+    reset();
+    assert(route_add(&rt.routes, REMOTE, 24, rt.ports[1].id) == 0);
+    struct rte_mbuf *m = packet(A, REMOTE, 64, 99, 28);
+    uint8_t original[28];
+    memcpy(original, header(m), sizeof(original));
+    submit(m, 0, DROP_NONE);
+    assert(capture_count == 1 && pending(1, REMOTE));
+    const struct rte_arp_hdr *arp = (const struct rte_arp_hdr *)(captures[0].data + 14);
+    assert(arp->arp_data.arp_tip == REMOTE && arp->arp_data.arp_sip == rt.ports[1].ip_be);
+    arp_reply(0, REMOTE);
+    assert(pending(1, REMOTE) && capture_count == 1);
+    arp_reply(1, REMOTE);
+    assert(!pending(1, REMOTE) && capture_count == 2);
+    check_forward(1, 1, original, sizeof(original));
+    assert(rt.graph.nodes[NODE_IPV4_FORWARD].stats.packets == 1);
+
+    reset();
+    memset(&rt.neighbours, 0, sizeof(rt.neighbours));
+    assert(neighbour_learn(&rt.neighbours, rt.ports[0].id, A, &peers[0]) == 0);
+    assert(route_add_gateway(&rt.routes, REMOTE, 24, rt.ports[1].id, B) == 0);
+    m = packet(A, REMOTE, 64, 99, 28);
+    memcpy(original, header(m), sizeof(original));
+    submit(m, 0, DROP_NONE);
+    assert(pending(1, B) && !pending(1, REMOTE));
+    uint64_t start = pending(1, B)->last_request;
+    for (unsigned i = 1; i <= ARP_MAX_REQUESTS; i++)
+        neighbour_tick(&rt, start + i * rte_get_timer_hz() * ARP_RETRY_SECONDS);
+    assert(!pending(1, B) && capture_count == ARP_MAX_REQUESTS + 1);
+    original[8]--;
+    ((struct rte_ipv4_hdr *)original)->hdr_checksum = 0;
+    ((struct rte_ipv4_hdr *)original)->hdr_checksum = rte_ipv4_cksum((struct rte_ipv4_hdr *)original);
+    check_error(ARP_MAX_REQUESTS, rt.ports[0].port_id, A, 3, 1, 0, original, sizeof(original));
+    assert(rt.graph.drop_reasons[DROP_NEIGHBOUR_RESOLUTION_TIMEOUT] == 1);
+    assert(rt.icmp_errors.generated == 1);
+
+    reset();
+    assert(route_add(&rt.routes, REMOTE, 24, rt.ports[1].id) == 0);
+    for (unsigned i = 0; i < NEIGHBOUR_PENDING_QUEUE_MAX; i++)
+        submit(packet(A, REMOTE, 64, 99, 28), 0, DROP_NONE);
+    submit(packet(A, REMOTE, 64, 99, 28), 0, DROP_NEIGHBOUR_QUEUE_FULL);
+    assert(pending(1, REMOTE)->count == NEIGHBOUR_PENDING_QUEUE_MAX && capture_count == 1);
+    neighbour_fini(&rt);
+    assert(rt.graph.drop_reasons[DROP_NEIGHBOUR_CANCELLED] == NEIGHBOUR_PENDING_QUEUE_MAX);
+    assert(!rt.icmp_errors.generated);
+    reset();
+    assert(route_add(&rt.routes, REMOTE, 24, rt.ports[1].id) == 0);
+    for (unsigned i = 0; i < NEIGHBOUR_PENDING_MAX; i++)
+        submit(packet(A, rte_cpu_to_be_32(rte_be_to_cpu_32(REMOTE) + i), 64, 99, 28), 0, DROP_NONE);
+    submit(packet(A, rte_cpu_to_be_32(rte_be_to_cpu_32(REMOTE) + NEIGHBOUR_PENDING_MAX), 64, 99, 28),
+           0, DROP_NEIGHBOUR_PENDING_FULL);
+    assert(capture_count == NEIGHBOUR_PENDING_MAX);
+    reset();
+}
+
 int main(void)
 {
     cpu_set_t cpus;
@@ -262,6 +513,8 @@ int main(void)
         assert(callbacks[i]);
     }
     error_tests();
+    forwarding_tests();
+    forwarding_resolution_tests();
     for (unsigned i = 0; i < 2; i++) {
         assert(rte_eth_remove_tx_callback(rt.ports[i].port_id, 0, callbacks[i]) == 0);
         rte_free((void *)callbacks[i]);

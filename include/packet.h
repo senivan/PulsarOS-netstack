@@ -15,6 +15,7 @@ enum drop_reason {
     DROP_NO_ROUTE, DROP_INVALID_EGRESS, DROP_FORWARDING_DISABLED,
     DROP_NEIGHBOUR_QUEUE_FULL, DROP_NEIGHBOUR_PENDING_FULL,
     DROP_NEIGHBOUR_RESOLUTION_TIMEOUT, DROP_NEIGHBOUR_CANCELLED,
+    DROP_TTL_EXPIRED,
     DROP_REASON_MAX
 };
 
@@ -26,4 +27,5 @@ struct packet_ctx {
     uint8_t ip_protocol;
     uint8_t drop_reason;
     uint8_t report_acceptance;
+    uint8_t transit;
 };

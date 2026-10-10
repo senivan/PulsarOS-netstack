@@ -708,7 +708,7 @@ int main(void)
     m = echo(0); ip_header(m)->hdr_checksum ^= 1; submit(m, DROP_INVALID_IPV4);
     m = echo(0); ip_header(m)->total_length = rte_cpu_to_be_16(100); ip_checksum(m); submit(m, DROP_INVALID_IPV4);
     m = echo(0); ip_header(m)->total_length = rte_cpu_to_be_16(19); ip_checksum(m); submit(m, DROP_INVALID_IPV4);
-    m = echo(0); ip_header(m)->time_to_live = 0; ip_checksum(m); submit(m, DROP_INVALID_IPV4);
+    m = echo(0); ip_header(m)->time_to_live = 0; ip_checksum(m); submit(m, DROP_NONE);
     m = echo(0); ip_header(m)->dst_addr = 0; ip_checksum(m); submit(m, DROP_FORWARDING_DISABLED);
     m = echo(0); ip_header(m)->src_addr = 0; ip_checksum(m); submit(m, DROP_INVALID_SOURCE);
     m = echo(0); ip_header(m)->fragment_offset = rte_cpu_to_be_16(RTE_IPV4_HDR_MF_FLAG); ip_checksum(m); submit(m, DROP_IPV4_FRAGMENT);
