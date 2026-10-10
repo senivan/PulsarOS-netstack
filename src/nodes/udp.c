@@ -1,5 +1,6 @@
 #include <errno.h>
 #include <string.h>
+#include <rte_cycles.h>
 #include <rte_ip.h>
 #include <rte_udp.h>
 #include "internal.h"
@@ -37,6 +38,7 @@ void udp_input_node_run(struct app_runtime *rt, const struct node_frame *in,
         struct ps_addr source = { .ip_be = ip->src_addr, .port = rte_be_to_cpu_16(udp->src_port) };
         int rc = udp_deliver(rt, rte_be_to_cpu_16(udp->dst_port), &source, udp + 1, length - sizeof(*udp));
         if (rc < 0) {
+            if (rc == -ENOENT) icmp_send_error(rt, m, &ctx, 3, 3, 0, rte_get_timer_cycles());
             enum drop_reason reason = rc == -ENOENT ? DROP_UDP_UNBOUND_PORT :
                 rc == -ENOBUFS ? DROP_UDP_RX_QUEUE_FULL : DROP_MTU;
             node_drop(rt, NODE_UDP_INPUT, m, &ctx, reason, 0);
