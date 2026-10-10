@@ -6,7 +6,7 @@
 #include <arpa/inet.h>
 #include "config.h"
 
-static void check(const char *text, int valid)
+static struct app_config check(const char *text, int valid)
 {
     char path[] = "/tmp/netstack-config-XXXXXX";
     int fd = mkstemp(path);
@@ -33,6 +33,7 @@ static void check(const char *text, int valid)
         }
     } else assert(err[0]);
     assert(unlink(path) == 0);
+    return conf;
 }
 
 int main(void)
@@ -90,6 +91,54 @@ int main(void)
         if (i == NETIF_MAX - 1) check(many, 1);
     }
     check(many, 0);
+
+    struct app_config conf = check("ipv4_forwarding=1\n[route]\nprefix=203.0.113.99/24\n"
+        "device=eth1\ngateway=198.51.100.1\n"
+        "[route]\nprefix=0.0.0.0/0\ndevice=eth0\n"
+        "[interface]\npmd=af_packet\ndevice=eth0\nip=192.0.2.2/24\n"
+        "[interface]\npmd=af_packet\ndevice=eth1\nip=198.51.100.2/24\n", 1);
+    assert(conf.ipv4_forwarding == 1 && conf.route_count == 2);
+    assert(conf.routes[0].prefix_be == inet_addr("203.0.113.0"));
+    assert(conf.routes[0].gateway_be == inet_addr("198.51.100.1"));
+    assert(conf.routes[1].prefix_len == 0 && !conf.routes[1].gateway_be);
+    const char *routes[] = {
+        "prefix=203.0.113.0/24\ndevice=pshost0\n",
+        "prefix=0.0.0.0/0\ndevice=pshost0\ngateway=192.0.2.1\n",
+        "prefix=203.0.113.0/33\ndevice=pshost0\n",
+        "prefix=203.0.113.0/24\ndevice=missing\n",
+        "prefix=203.0.113.0/24\n", "device=pshost0\n",
+        "prefix=203.0.113.0/24\nprefix=0.0.0.0/0\ndevice=pshost0\n",
+        "prefix=0.0.0.0/0\ndevice=pshost0\ngateway=0.0.0.0\n",
+        "prefix=0.0.0.0/0\ndevice=pshost0\ngateway=192.0.2.2\n",
+        "prefix=0.0.0.0/0\ndevice=pshost0\ngateway=192.0.2.255\n",
+        "prefix=0.0.0.0/0\ndevice=pshost0\ngateway=192.0.2.0\n",
+        "prefix=0.0.0.0/0\ndevice=pshost0\ngateway=198.51.100.1\n",
+        "prefix=0.0.0.0/0\ndevice=pshost0\ngateway=127.0.0.1\n",
+        "prefix=0.0.0.0/0\ndevice=pshost0\ngateway=224.0.0.1\n",
+        "prefix=0.0.0.0/0\ndevice=pshost0\ngateway=192.0.2.1\ngateway=192.0.2.3\n",
+        "prefix=0.0.0.0/0\ndevice=pshost0\nip=192.0.2.1\n"
+    };
+    for (unsigned i = 0; i < sizeof(routes) / sizeof(routes[0]); i++) {
+        char text[512];
+        snprintf(text, sizeof(text), "%s[route]\n%s", base, routes[i]);
+        check(text, i < 2);
+    }
+    check("pmd=tap\ndevice=pshost0\nip=192.0.2.2/24\nipv4_forwarding=2\n", 0);
+    check("pmd=tap\ndevice=pshost0\nip=192.0.2.2/24\nipv4_forwarding=1\nipv4_forwarding=0\n", 0);
+    check("pmd=tap\ndevice=pshost0\nip=192.0.2.2/24\n[route]\n"
+          "prefix=0.0.0.0/0\ndevice=pshost0\ngateway=198.51.100.1\n[route]\n"
+          "prefix=198.51.100.1/32\ndevice=pshost0\n", 1);
+    check("pmd=tap\ndevice=pshost0\nip=192.0.2.2/24\n[route]\n"
+          "prefix=0.0.0.0/0\ndevice=pshost0\ngateway=198.51.100.1\n[route]\n"
+          "prefix=198.51.100.1/32\ndevice=pshost0\ngateway=192.0.2.1\n", 0);
+    char full[4096];
+    strcpy(full, base);
+    for (unsigned i = 0; i < ROUTE_CAPACITY; i++) {
+        strcat(full, "[route]\nprefix=203.0.113.0/24\ndevice=pshost0\n");
+        check(full, i < ROUTE_CAPACITY - 1);
+    }
+    strcat(full, "[route]\n");
+    check(full, 0);
     puts("config checks passed");
     return 0;
 }

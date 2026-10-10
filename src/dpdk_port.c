@@ -109,7 +109,9 @@ int port_init(const struct app_config *conf, struct app_runtime *rt)
     }
     for (uint16_t i = 0; i < rt->port_count; i++)
         if (configure_port(conf, rt, i)) return -1;
-    return route_init_connected(rt);
+    int rc = route_config_init(conf, &rt->routes);
+    if (rc) fprintf(stderr, "failed to initialize routes: %d\n", rc);
+    return rc ? -1 : 0;
 }
 
 void port_fini(struct app_runtime *rt)
