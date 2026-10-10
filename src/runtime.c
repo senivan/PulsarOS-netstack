@@ -65,6 +65,11 @@ void app_dump_stats(const struct app_runtime *rt)
 {
     graph_dump_stats(rt);
     printf("neighbour learn failures: %llu\n", (unsigned long long)rt->neighbour_learn_failures);
+    printf("ICMP errors: generated=%llu suppressed=%llu rate_limited=%llu failed=%llu\n",
+           (unsigned long long)rt->icmp_errors.generated,
+           (unsigned long long)rt->icmp_errors.suppressed,
+           (unsigned long long)rt->icmp_errors.rate_limited,
+           (unsigned long long)rt->icmp_errors.failed);
     printf("transmitted packets: %llu\n", (unsigned long long)rt->tx_packets);
     for (uint16_t i = 0; i < rt->port_count; i++) {
         const struct port_state *port = &rt->ports[i];
