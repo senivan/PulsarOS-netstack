@@ -1,6 +1,9 @@
 #include <stdio.h>
 #include <string.h>
 #include <unistd.h>
+#include <net/if.h>
+#include <sys/ioctl.h>
+#include <sys/socket.h>
 #include <rte_eal.h>
 #include <rte_errno.h>
 #include <rte_lcore.h>
@@ -60,6 +63,20 @@ int eal_init(const char *progname, const struct app_config *conf)
     return 0;
 }
 
+static int af_packet_mtu(const char *device, uint16_t *mtu)
+{
+    int fd = socket(AF_INET, SOCK_DGRAM, 0);
+    if (fd < 0) return -1;
+    struct ifreq request = {0};
+    if (strlen(device) >= sizeof(request.ifr_name)) { close(fd); return -1; }
+    strcpy(request.ifr_name, device);
+    int rc = ioctl(fd, SIOCGIFMTU, &request);
+    close(fd);
+    if (rc || request.ifr_mtu < 68) return -1;
+    if (request.ifr_mtu < *mtu) *mtu = (uint16_t)request.ifr_mtu;
+    return 0;
+}
+
 static int configure_port(const struct app_config *conf, struct app_runtime *rt, uint16_t index)
 {
     const struct netif_config *netif = &conf->interfaces[index];
@@ -89,6 +106,7 @@ static int configure_port(const struct app_config *conf, struct app_runtime *rt,
     if (!rc) rc = rte_eth_tx_queue_setup(id, 0, tx_desc, socket, NULL);
     if (!rc) rc = rte_eth_macaddr_get(id, &port->mac);
     if (!rc) rc = rte_eth_dev_get_mtu(id, &port->mtu);
+    if (!rc && netif->pmd == PMD_AFPKT) rc = af_packet_mtu(netif->device, &port->mtu);
     if (!rc && (!rte_is_valid_assigned_ether_addr(&port->mac) || port->mtu > 1500)) rc = -1;
     if (!rc) rc = rte_eth_dev_start(id);
     if (rc) { fprintf(stderr, "failed to configure port %s: %d\n", name, rc); return -1; }
