@@ -460,6 +460,23 @@ static void forwarding_resolution_tests(void)
     assert(rt.icmp_errors.generated == 1);
 
     reset();
+    memset(&rt.neighbours, 0, sizeof(rt.neighbours));
+    assert(route_add(&rt.routes, REMOTE, 24, rt.ports[1].id) == 0);
+    submit(packet(A, REMOTE, 64, 99, 28), 0, DROP_NONE);
+    start = pending(1, REMOTE)->last_request;
+    for (unsigned i = 1; i <= ARP_MAX_REQUESTS; i++)
+        neighbour_tick(&rt, start + i * rte_get_timer_hz() * ARP_RETRY_SECONDS);
+    assert(!pending(1, REMOTE) && pending(0, A));
+    assert(!pending(0, A)->contexts[0].transit && rt.icmp_errors.generated == 1);
+    start = pending(0, A)->last_request;
+    for (unsigned i = 1; i <= ARP_MAX_REQUESTS; i++)
+        neighbour_tick(&rt, start + i * rte_get_timer_hz() * ARP_RETRY_SECONDS);
+    assert(!pending(0, A) && rt.icmp_errors.generated == 1);
+    assert(rt.graph.drop_reasons[DROP_NEIGHBOUR_RESOLUTION_TIMEOUT] == 2);
+    assert(capture_count == ARP_MAX_REQUESTS * 2);
+    assert(rte_mempool_avail_count(rt.mbuf_pool) == POOL_SIZE);
+
+    reset();
     assert(route_add(&rt.routes, REMOTE, 24, rt.ports[1].id) == 0);
     for (unsigned i = 0; i < NEIGHBOUR_PENDING_QUEUE_MAX; i++)
         submit(packet(A, REMOTE, 64, 99, 28), 0, DROP_NONE);
