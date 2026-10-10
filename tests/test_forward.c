@@ -1,5 +1,6 @@
 #define _GNU_SOURCE
 #include <assert.h>
+#include <errno.h>
 #include <sched.h>
 #include <stdio.h>
 #include <string.h>
@@ -8,6 +9,7 @@
 #include <rte_eal.h>
 #include <rte_ip.h>
 #include <rte_malloc.h>
+#include <rte_udp.h>
 #include "runtime.h"
 
 #define POOL_SIZE 511
@@ -43,6 +45,7 @@ static void reset(void)
     assert(rte_mempool_avail_count(rt.mbuf_pool) == POOL_SIZE);
     memset(&rt.neighbours, 0, sizeof(rt.neighbours));
     memset(&rt.icmp_errors, 0, sizeof(rt.icmp_errors));
+    memset(&rt.udp, 0, sizeof(rt.udp));
     assert(route_init_connected(&rt) == 0 && graph_init(&rt) == 0);
     assert(neighbour_learn(&rt.neighbours, rt.ports[0].id, A, &peers[0]) == 0);
     assert(neighbour_learn(&rt.neighbours, rt.ports[1].id, B, &peers[1]) == 0);
@@ -111,7 +114,11 @@ static void check_error(unsigned index, uint16_t port, uint32_t destination,
     assert(index < capture_count && captures[index].port == port);
     const struct rte_ipv4_hdr *ip = (const struct rte_ipv4_hdr *)(captures[index].data + 14);
     const uint8_t *icmp = (const uint8_t *)(ip + 1);
-    assert(ip->src_addr == netif_by_dpdk_port(&rt, port)->ip_be && ip->dst_addr == destination);
+    struct rte_ipv4_hdr original;
+    memcpy(&original, quote, sizeof(original));
+    uint32_t source = netif_is_local_ip(&rt, original.dst_addr) ?
+                      original.dst_addr : netif_by_dpdk_port(&rt, port)->ip_be;
+    assert(ip->src_addr == source && ip->dst_addr == destination);
     assert(ip->time_to_live == 64 && ip->next_proto_id == IPPROTO_ICMP);
     assert(sum(ip, 20) == UINT16_MAX && sum(icmp, 8 + quote_length) == UINT16_MAX);
     assert(rte_be_to_cpu_16(ip->total_length) == 28 + quote_length);
@@ -268,6 +275,144 @@ static void arp_reply(unsigned ingress, uint32_t ip_be)
     arp->arp_data.arp_tha = rt.ports[ingress].mac;
     arp->arp_data.arp_tip = rt.ports[ingress].ip_be;
     submit(m, ingress, DROP_NONE);
+}
+
+static struct rte_mbuf *udp_packet(uint32_t source, uint32_t destination,
+                                   uint16_t port, uint16_t length, int with_checksum)
+{
+    struct rte_mbuf *m = packet(source, destination, 1, IPPROTO_UDP, length);
+    struct rte_udp_hdr *udp = (struct rte_udp_hdr *)(header(m) + 1);
+    udp->src_port = rte_cpu_to_be_16(50001);
+    udp->dst_port = rte_cpu_to_be_16(port);
+    udp->dgram_len = rte_cpu_to_be_16(length - 20);
+    udp->dgram_cksum = 0;
+    if (with_checksum) udp->dgram_cksum = rte_ipv4_udptcp_cksum(header(m), udp);
+    return m;
+}
+
+static void udp_error_tests(void)
+{
+    const uint16_t lengths[] = {28, 41, 1500};
+    for (unsigned local = 0; local < 2; local++) {
+        for (unsigned i = 0; i < RTE_DIM(lengths); i++) for (int ck = 0; ck <= 1; ck++) {
+            reset();
+            struct rte_mbuf *m = udp_packet(A, rt.ports[local].ip_be, 9999, lengths[i], ck);
+            uint8_t quote[548];
+            unsigned length = RTE_MIN(lengths[i], sizeof(quote));
+            memcpy(quote, header(m), length);
+            memset(rte_pktmbuf_append(m, 16), 0xa5, 16);
+            submit(m, 0, DROP_UDP_UNBOUND_PORT);
+            assert(capture_count == 1 && rt.icmp_errors.generated == 1);
+            check_error(0, rt.ports[0].port_id, A, 3, 3, 0, quote, length);
+            assert(!rt.graph.nodes[NODE_UDP_INPUT].stats.errors);
+            assert(rte_mempool_avail_count(rt.mbuf_pool) == POOL_SIZE);
+        }
+    }
+    reset();
+    assert(ps_udp_bind(&rt, 9000) == 0);
+    for (unsigned i = 0; i <= PS_UDP_RX_QUEUE_SIZE; i++)
+        submit(udp_packet(A, rt.ports[0].ip_be, 9000, 41, 1), 0,
+               i == PS_UDP_RX_QUEUE_SIZE ? DROP_UDP_RX_QUEUE_FULL : DROP_NONE);
+    uint8_t received[13];
+    struct ps_addr source;
+    for (unsigned i = 0; i < PS_UDP_RX_QUEUE_SIZE; i++) {
+        assert(ps_udp_recvfrom(&rt, 9000, received, sizeof(received), &source) == (ssize_t)sizeof(received));
+        assert(source.ip_be == A && source.port == 50001);
+        for (unsigned j = 0; j < sizeof(received); j++) assert(received[j] == 28 + j);
+    }
+    assert(ps_udp_recvfrom(&rt, 9000, received, sizeof(received), &source) == -EAGAIN);
+    assert(!capture_count && !rt.icmp_errors.generated);
+
+    reset();
+    const enum drop_reason malformed[] = {DROP_INVALID_UDP, DROP_UDP_BAD_LENGTH,
+        DROP_UDP_BAD_LENGTH, DROP_UDP_BAD_CHECKSUM};
+    for (unsigned i = 0; i < RTE_DIM(malformed); i++) {
+        struct rte_mbuf *m = udp_packet(A, rt.ports[0].ip_be, 9999, 41, 1);
+        struct rte_udp_hdr *udp = (struct rte_udp_hdr *)(header(m) + 1);
+        if (i == 0) {
+            rte_pktmbuf_trim(m, 14);
+            header(m)->total_length = rte_cpu_to_be_16(27);
+            checksum(m);
+        } else if (i < 3) udp->dgram_len = rte_cpu_to_be_16(i == 1 ? 7 : 22);
+        else ((uint8_t *)(udp + 1))[0] ^= 1;
+        submit(m, 0, malformed[i]);
+    }
+    assert(!capture_count && !rt.icmp_errors.generated && !rt.graph.drop_reasons[DROP_UDP_UNBOUND_PORT]);
+
+    reset();
+    submit(udp_packet(rte_cpu_to_be_32(RTE_IPV4(198u, 51, 100, 255)), rt.ports[0].ip_be, 9999, 28, 1),
+           0, DROP_UDP_UNBOUND_PORT);
+    assert(rt.icmp_errors.suppressed == 1 && !capture_count);
+    struct rte_mbuf *m = udp_packet(A, rt.ports[0].ip_be, 9999, 28, 1);
+    memset(&rte_pktmbuf_mtod(m, struct rte_ether_hdr *)->dst_addr, 255, 6);
+    struct node_frame frame = { .count = 1 };
+    frame.pkts[0] = m;
+    frame.ctxs[0] = (struct packet_ctx){ .ingress_port_id = rt.ports[0].port_id, .l3_offset = 14, .l4_offset = 34 };
+    assert(graph_submit(&rt, NODE_UDP_INPUT, &frame) == 0);
+    assert(rt.icmp_errors.suppressed == 2 && !capture_count);
+    submit(udp_packet(A, rte_cpu_to_be_32(0xe0000001), 9999, 28, 1), 0, DROP_FORWARDING_DISABLED);
+    submit(udp_packet(0, rt.ports[0].ip_be, 9999, 28, 1), 0, DROP_INVALID_SOURCE);
+    m = udp_packet(A, rt.ports[0].ip_be, 9999, 28, 1);
+    header(m)->fragment_offset = rte_cpu_to_be_16(1);
+    checksum(m);
+    submit(m, 0, DROP_IPV4_FRAGMENT);
+    assert(!capture_count && !rt.icmp_errors.generated);
+
+    reset();
+    rt.icmp_errors.initialized = 1;
+    rt.icmp_errors.last_refill = rte_get_timer_cycles();
+    submit(udp_packet(A, rt.ports[0].ip_be, 9999, 28, 1), 0, DROP_UDP_UNBOUND_PORT);
+    assert(rt.icmp_errors.rate_limited == 1 && !capture_count);
+
+    reset();
+    assert(route_add_gateway(&rt.routes, REMOTE, 24, rt.ports[1].id, B) == 0);
+    m = udp_packet(REMOTE, rt.ports[0].ip_be, 9999, 41, 1);
+    uint8_t quote[41];
+    memcpy(quote, header(m), sizeof(quote));
+    submit(m, 0, DROP_UDP_UNBOUND_PORT);
+    check_error(0, rt.ports[1].port_id, REMOTE, 3, 3, 0, quote, sizeof(quote));
+    const struct rte_ether_hdr *eth = (const struct rte_ether_hdr *)captures[0].data;
+    assert(rte_is_same_ether_addr(&eth->src_addr, &rt.ports[1].mac));
+    assert(rte_is_same_ether_addr(&eth->dst_addr, &peers[1]));
+
+    reset();
+    memset(&rt.neighbours, 0, sizeof(rt.neighbours));
+    m = udp_packet(A, rt.ports[0].ip_be, 9999, 41, 1);
+    memcpy(quote, header(m), sizeof(quote));
+    submit(m, 0, DROP_UDP_UNBOUND_PORT);
+    assert(capture_count == 1 && pending(0, A) && !pending(0, A)->contexts[0].transit);
+    assert(rte_mempool_avail_count(rt.mbuf_pool) == POOL_SIZE - 1);
+    arp_reply(0, A);
+    check_error(1, rt.ports[0].port_id, A, 3, 3, 0, quote, sizeof(quote));
+    assert(!pending(0, A) && rte_mempool_avail_count(rt.mbuf_pool) == POOL_SIZE);
+
+    reset();
+    memset(&rt.neighbours, 0, sizeof(rt.neighbours));
+    submit(udp_packet(A, rt.ports[0].ip_be, 9999, 28, 1), 0, DROP_UDP_UNBOUND_PORT);
+    uint64_t start = pending(0, A)->last_request;
+    for (unsigned i = 1; i <= ARP_MAX_REQUESTS; i++)
+        neighbour_tick(&rt, start + i * rte_get_timer_hz() * ARP_RETRY_SECONDS);
+    assert(!pending(0, A) && rt.icmp_errors.generated == 1);
+    assert(rt.graph.drop_reasons[DROP_NEIGHBOUR_RESOLUTION_TIMEOUT] == 1);
+    assert(rte_mempool_avail_count(rt.mbuf_pool) == POOL_SIZE);
+
+    reset();
+    rt.routes.count = 0;
+    submit(udp_packet(A, rt.ports[0].ip_be, 9999, 28, 1), 0, DROP_UDP_UNBOUND_PORT);
+    assert(rt.icmp_errors.failed == 1 && !capture_count);
+    reset();
+    m = udp_packet(A, rt.ports[0].ip_be, 9999, 28, 1);
+    struct rte_mbuf *held[POOL_SIZE];
+    unsigned count = 0;
+    while ((held[count] = rte_pktmbuf_alloc(rt.mbuf_pool))) count++;
+    submit(m, 0, DROP_UDP_UNBOUND_PORT);
+    assert(rt.icmp_errors.failed == 1 && !capture_count);
+    for (unsigned i = 0; i < count; i++) rte_pktmbuf_free(held[i]);
+    reset();
+    tx_limit = 0;
+    submit(udp_packet(A, rt.ports[0].ip_be, 9999, 28, 1), 0, DROP_UDP_UNBOUND_PORT);
+    assert(rt.icmp_errors.generated == 1 && rt.graph.drop_reasons[DROP_TX_FAILED] == 1);
+    reset();
 }
 
 static void check_forward(unsigned index, unsigned egress, const void *original, unsigned length)
@@ -530,6 +675,7 @@ int main(void)
         assert(callbacks[i]);
     }
     error_tests();
+    udp_error_tests();
     forwarding_tests();
     forwarding_resolution_tests();
     for (unsigned i = 0; i < 2; i++) {

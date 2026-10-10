@@ -231,7 +231,11 @@ static void udp_tests(void)
     assert(ps_udp_recvfrom(&rt, 9001, received, 12, &source) == -EMSGSIZE);
     assert(ps_udp_recvfrom(&rt, 9001, received, sizeof(received), &source) == 13);
     assert(!memcmp(received, payload, 13));
-    submit(udp_packet(payload, 13, 9999, 1), DROP_UDP_UNBOUND_PORT);
+    unsigned tx_before = captured_count;
+    uint64_t unbound_before = rt.graph.drop_reasons[DROP_UDP_UNBOUND_PORT];
+    submit(udp_packet(payload, 13, 9999, 1), DROP_NONE);
+    assert(captured_count == tx_before + 1 && rt.icmp_errors.generated == 1);
+    assert(rt.graph.drop_reasons[DROP_UDP_UNBOUND_PORT] == unbound_before + 1);
     struct rte_mbuf *m = udp_packet(payload, 0, 9000, 0);
     rte_pktmbuf_trim(m, 1);
     ip_header(m)->total_length = rte_cpu_to_be_16(27);

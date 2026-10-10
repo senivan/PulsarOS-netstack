@@ -81,7 +81,8 @@ void icmp_send_error(struct app_runtime *rt, const struct rte_mbuf *original,
     memcpy(error + 1, ip, quote);
     error->checksum = (uint16_t)~rte_raw_cksum(error, sizeof(*error) + quote);
     struct packet_ctx response = { .egress_port_id = netif_by_id(rt, route.netif_id)->port_id,
-        .src_ip_be = route.source_ip_be, .dst_ip_be = ip->src_addr,
+        .src_ip_be = netif_is_local_ip(rt, ip->dst_addr) ? ip->dst_addr : route.source_ip_be,
+        .dst_ip_be = ip->src_addr,
         .next_hop_ip_be = route.next_hop_be, .ip_protocol = IPPROTO_ICMP };
     int rc;
     if (rt->active_output) rc = node_enqueue(rt->active_output, NODE_IPV4_OUTPUT, m, &response);
