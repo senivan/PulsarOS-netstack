@@ -40,8 +40,8 @@ def main():
             ip("link", "set", name, "up")
         with tempfile.TemporaryDirectory(prefix="netstack-smoke-") as tmp:
             config = Path(tmp) / "stack.conf"
-            config.write_text(f"lcore={min(os.sched_getaffinity(0))}\npmd=af_packet\n"
-                              "device=ns-host\nip=192.0.2.2/24\nno_huge=1\n")
+            config.write_text(f"lcore={min(os.sched_getaffinity(0))}\nno_huge=1\n"
+                              "[interface]\npmd=af_packet\ndevice=ns-host\nip=192.0.2.2/24\n")
             log_path = Path(tmp) / "stack.log"
             with log_path.open("w+") as log, socket.socket(socket.AF_PACKET, socket.SOCK_RAW,
                                                          socket.htons(3)) as sock:
