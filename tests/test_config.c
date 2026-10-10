@@ -68,6 +68,19 @@ int main(void)
                         "[interface]\npmd=af_packet\ndevice=eth1\nip=198.51.100.2/24\n";
     check(multi, 1);
     check("[interface]\npmd=tap\ndevice=eth0\nip=192.0.2.2/24\n", 1);
+    const char *globals[] = { "lcore=2\n", "no_huge=1\n", "ipv4_forwarding=1\n" };
+    for (unsigned i = 0; i < sizeof(globals) / sizeof(globals[0]); i++) {
+        char text[512];
+        snprintf(text, sizeof(text), "%s[interface]\npmd=tap\ndevice=pshost0\nip=192.0.2.2/24\n", globals[i]);
+        check(text, 1);
+        snprintf(text, sizeof(text), "[interface]\n%spmd=tap\ndevice=pshost0\nip=192.0.2.2/24\n", globals[i]);
+        check(text, 0);
+        snprintf(text, sizeof(text), "%s[route]\nprefix=0.0.0.0/0\ndevice=pshost0\n%s", base, globals[i]);
+        check(text, 0);
+        snprintf(text, sizeof(text), "[route]\nprefix=0.0.0.0/0\ndevice=pshost0\n%s"
+                 "[interface]\npmd=tap\ndevice=pshost0\nip=192.0.2.2/24\n", globals[i]);
+        check(text, 0);
+    }
     check("pmd=tap\ndevice=eth0\nip=192.0.2.2/24\n[interface]\n", 0);
     check("[interface]\n[interface]\npmd=tap\ndevice=eth1\nip=198.51.100.2/24\n", 0);
     check("[unknown]\npmd=tap\ndevice=eth0\nip=192.0.2.2/24\n", 0);

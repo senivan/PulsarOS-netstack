@@ -94,7 +94,7 @@ int app_config_load(const char *path, struct app_config *conf, char *err, size_t
         *value++ = '\0';
         key = trim(key);
         value = trim(value);
-        if (in_route && strcmp(key, "lcore") && strcmp(key, "no_huge") && strcmp(key, "ipv4_forwarding")) {
+        if (in_route) {
             struct route_config *route = &conf->routes[conf->route_count - 1];
             unsigned *scope = &route_seen[conf->route_count - 1];
             unsigned bit;
@@ -122,6 +122,9 @@ int app_config_load(const char *path, struct app_config *conf, char *err, size_t
         for (k = 0; k < sizeof(keys) / sizeof(keys[0]); k++)
             if (!strcmp(key, keys[k])) break;
         if (k == sizeof(keys) / sizeof(keys[0])) { why = "unknown key"; goto bad; }
+        if (sectioned && (k == 0 || k == 4 || k == 5)) {
+            why = "global keys must precede sections"; goto bad;
+        }
         unsigned *scope = k == 0 || k == 4 || k == 5 ? &global_seen : &seen[current];
         if (*scope & (1u << k)) { why = "duplicate key"; goto bad; }
         *scope |= 1u << k;
