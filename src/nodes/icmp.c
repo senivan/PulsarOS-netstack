@@ -40,7 +40,7 @@ void icmp_input_node_run(struct app_runtime *rt, const struct node_frame *in,
         ip->hdr_checksum = rte_ipv4_cksum(ip);
         ctx.egress_port_id = netif_by_id(rt, route.netif_id)->port_id;
         ctx.next_hop_ip_be = route.next_hop_be;
-        if (ctx.egress_port_id == ctx.ingress_port_id) {
+        if (ctx.egress_port_id == ctx.ingress_port_id && ctx.next_hop_ip_be == requester) {
             struct rte_ether_hdr *eth = rte_pktmbuf_mtod(m, struct rte_ether_hdr *);
             eth->dst_addr = eth->src_addr;
             eth->src_addr = netif_by_id(rt, route.netif_id)->mac;

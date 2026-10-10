@@ -292,6 +292,32 @@ static void failure_ownership(void)
     reset();
 }
 
+static void static_routes(void)
+{
+    reset();
+    uint32_t remote = rte_cpu_to_be_32(RTE_IPV4(203u, 0, 113, 1));
+    assert(route_add_gateway(&rt.routes, remote, 24, rt.ports[0].id, TARGET) == 0);
+    send_udp(remote, 1);
+    check_request(0, 0, TARGET);
+    inject_arp(0, TARGET, 1, 0);
+    assert(capture_count == 2 && !pending(0, TARGET));
+    const struct rte_ipv4_hdr *ip = (const struct rte_ipv4_hdr *)(captures[1].data + 14);
+    assert(ip->dst_addr == remote);
+    assert(route_init_connected(&rt) == 0);
+    reset();
+    assert(route_add(&rt.routes, remote, 32, rt.ports[1].id) == 0);
+    send_udp(remote, 1);
+    check_request(0, 1, remote);
+    inject_arp(0, remote, 1, 0);
+    assert(pending(1, remote) && capture_count == 1);
+    inject_arp(1, remote, 1, 0);
+    assert(capture_count == 2 && !pending(1, remote));
+    ip = (const struct rte_ipv4_hdr *)(captures[1].data + 14);
+    assert(ip->dst_addr == remote && ip->src_addr == rt.ports[1].ip_be);
+    assert(route_init_connected(&rt) == 0);
+    reset();
+}
+
 int main(void)
 {
     cpu_set_t cpus;
@@ -333,6 +359,7 @@ int main(void)
     capacities();
     interface_scope();
     failure_ownership();
+    static_routes();
     send_udp(TARGET, 1);
     neighbour_fini(&rt);
     reset();

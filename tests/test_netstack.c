@@ -406,6 +406,15 @@ static void route_tests(void)
     while (rt.routes.count < ROUTE_CAPACITY) assert(route_add(&rt.routes, 0, 0, 0) == 0);
     assert(route_add(&rt.routes, 0, 0, 0) == -ENOSPC);
     assert(route_init_connected(&rt) == 0);
+    assert(route_add_gateway(&rt.routes, outside, 24, rt.ports[1].id, peer_ip_on(1)) == 0);
+    assert(ipv4_route_lookup(&rt, outside, &result) == DROP_NONE);
+    assert(result.netif_id == rt.ports[1].id && result.next_hop_be == peer_ip_on(1));
+    assert(result.source_ip_be == rt.ports[1].ip_be);
+    assert(route_add(&rt.routes, outside, 32, rt.ports[0].id) == 0);
+    assert(ipv4_route_lookup(&rt, outside, &result) == DROP_NONE && result.next_hop_be == outside);
+    assert(route_is_direct(&rt.routes, rt.ports[0].id, outside));
+    assert(!route_is_direct(&rt.routes, rt.ports[1].id, outside));
+    assert(route_init_connected(&rt) == 0);
 }
 
 static void multi_tests(void)
@@ -519,6 +528,20 @@ static void multi_tests(void)
     before = rt.graph.drop_reasons[DROP_INVALID_EGRESS];
     assert(ps_udp_sendto(&rt, 9000, payload, sizeof(payload), &missing) == -EIO);
     assert(rt.graph.drop_reasons[DROP_INVALID_EGRESS] == before + 1);
+    assert(route_init_connected(&rt) == 0);
+
+    uint32_t gateway_ip = rte_cpu_to_be_32(RTE_IPV4(192u, 0, 2, 9));
+    uint32_t remote_ip = rte_cpu_to_be_32(RTE_IPV4(203u, 0, 113, 1));
+    struct rte_ether_addr gateway_mac = {{2, 0, 0, 0, 0, 9}};
+    assert(route_add_gateway(&rt.routes, remote_ip, 24, rt.ports[0].id, gateway_ip) == 0);
+    assert(neighbour_learn(&rt.neighbours, rt.ports[0].id, gateway_ip, &gateway_mac) == 0);
+    asymmetric = echo(3);
+    ip_header(asymmetric)->src_addr = remote_ip;
+    ip_checksum(asymmetric);
+    submit_on(asymmetric, 0, DROP_NONE);
+    assert(captured_port == rt.ports[0].port_id);
+    assert(rte_is_same_ether_addr(&((const struct rte_ether_hdr *)captured)->dst_addr, &gateway_mac));
+    assert(((const struct rte_ipv4_hdr *)(captured + 14))->dst_addr == remote_ip);
     assert(route_init_connected(&rt) == 0);
 
     uint32_t shared = rte_cpu_to_be_32(RTE_IPV4(10u, 0, 0, 1));
