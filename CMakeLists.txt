@@ -7,7 +7,7 @@ find_package(PkgConfig REQUIRED)
 pkg_check_modules(DPDK REQUIRED IMPORTED_TARGET libdpdk>=22.11)
 
 add_library(netstack STATIC
-  src/config.c src/dpdk_port.c src/graph.c src/runtime.c src/neighbour.c src/neighbour_resolution.c src/udp.c src/route.c
+  src/config.c src/dpdk_port.c src/graph.c src/runtime.c src/neighbour.c src/neighbour_resolution.c src/udp.c src/route.c src/icmp_error.c
   src/nodes/arp.c src/nodes/drop.c src/nodes/ingress.c src/nodes/icmp.c
   src/nodes/register.c src/nodes/tx.c src/nodes/output.c src/nodes/udp.c)
 target_include_directories(netstack PUBLIC include)
@@ -21,6 +21,10 @@ target_compile_options(udp-echo PRIVATE -Wall -Wextra -Wpedantic -Werror)
 
 include(CTest)
 if(BUILD_TESTING)
+  add_executable(test-forward tests/test_forward.c)
+  target_link_libraries(test-forward PRIVATE netstack)
+  target_compile_options(test-forward PRIVATE -Wall -Wextra -Wpedantic -Werror -UNDEBUG)
+  add_test(NAME netstack-forward COMMAND test-forward)
   add_executable(test-resolution tests/test_resolution.c)
   target_link_libraries(test-resolution PRIVATE netstack)
   target_compile_options(test-resolution PRIVATE -Wall -Wextra -Wpedantic -Werror -UNDEBUG)

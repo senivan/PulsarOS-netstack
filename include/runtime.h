@@ -7,6 +7,7 @@
 #include "neighbour.h"
 #include "udp.h"
 #include "route.h"
+#include "icmp.h"
 
 struct port_state {
     uint16_t id, port_id, mtu;
@@ -25,6 +26,7 @@ struct app_runtime {
     struct neighbour_table neighbours;
     struct neighbour_pending pending_neighbours;
     struct udp_endpoints udp;
+    struct icmp_error_state icmp_errors;
     uint64_t neighbour_learn_failures;
     uint16_t next_ip_id;
     struct node_output *active_output;
