@@ -38,6 +38,7 @@ def main():
         for name, mac in (("ns-host", host_mac), ("ns-peer", peer_mac)):
             ip("link", "set", name, "address", mac)
             ip("link", "set", name, "up")
+        subprocess.run(["ethtool", "-K", "ns-peer", "tx", "off", "rx", "off"], check=True, capture_output=True)
         with tempfile.TemporaryDirectory(prefix="netstack-smoke-") as tmp:
             config = Path(tmp) / "stack.conf"
             config.write_text(f"lcore={min(os.sched_getaffinity(0))}\nno_huge=1\n"
@@ -101,12 +102,41 @@ def main():
                         assert rebuilt.chksum == reply[IP].chksum
                         assert rebuilt[UDP].chksum == reply[UDP].chksum != 0
                         sent += 1
+                ip("addr", "add", "192.0.2.1/24", "dev", "ns-peer")
+                ip("neigh", "replace", "192.0.2.2", "lladdr", host_mac, "nud", "permanent", "dev", "ns-peer")
+                with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as client:
+                    client.settimeout(2)
+                    client.bind(("192.0.2.1", 0))
+                    client.connect(("192.0.2.2", 9001))
+                    client.send(b"closed-local-port")
+                    reply = receive(sock, lambda p: ICMP in p and p[ICMP].type == 3 and p[ICMP].code == 3)
+                    assert reply.src == host_mac and reply.dst == peer_mac
+                    assert reply[IP].src == "192.0.2.2" and reply[IP].dst == "192.0.2.1"
+                    quote = IP(bytes(reply[ICMP].payload))
+                    assert quote.src == "192.0.2.1" and quote.dst == "192.0.2.2"
+                    assert quote[UDP].sport == client.getsockname()[1] and quote[UDP].dport == 9001
+                    assert bytes(quote[UDP].payload) == b"closed-local-port"
+                    rebuilt = IP(bytes(reply[IP])[:reply[IP].len])
+                    del rebuilt.chksum
+                    del rebuilt[ICMP].chksum
+                    rebuilt = IP(bytes(rebuilt))
+                    assert rebuilt.chksum == reply[IP].chksum
+                    assert rebuilt[ICMP].chksum == reply[ICMP].chksum
+                    try:
+                        client.recv(1)
+                    except ConnectionRefusedError:
+                        pass
+                    else:
+                        raise AssertionError("Linux UDP socket did not receive Port Unreachable")
+                sent += 1
                 process.send_signal(signal.SIGTERM)
                 assert process.wait(timeout=5) == 0
                 output = log_path.read_text()
                 assert "invalid_ipv4" in output and f"transmitted packets: {sent}" in output, output
+                assert "udp_unbound_port" in output and "ICMP errors: generated=1" in output, output
                 print(output)
                 print("AF_PACKET startup, ARP, ICMP, invalid IPv4 and shutdown smoke passed")
+                print("local UDP Port Unreachable, quote, checksums and Linux ECONNREFUSED passed")
                 if test_udp:
                     print("native UDP echo, empty datagram and software checksums passed")
     finally:
