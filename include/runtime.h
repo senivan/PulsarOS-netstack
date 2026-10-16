@@ -5,7 +5,7 @@
 #include "app.h"
 #include "graph.h"
 #include "neighbour.h"
-#include "udp.h"
+#include "socket.h"
 #include "route.h"
 #include "icmp.h"
 
@@ -25,7 +25,7 @@ struct app_runtime {
     struct dp_graph graph;
     struct neighbour_table neighbours;
     struct neighbour_pending pending_neighbours;
-    struct udp_endpoints udp;
+    struct socket_subsystem sockets;
     struct icmp_error_state icmp_errors;
     uint8_t ipv4_forwarding;
     uint64_t neighbour_learn_failures;

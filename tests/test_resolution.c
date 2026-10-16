@@ -16,6 +16,7 @@
 #define TARGET rte_cpu_to_be_32(RTE_IPV4(192u, 0, 2, 1))
 
 static struct app_runtime rt;
+static ps_fd_t udp_fd;
 static const struct rte_ether_addr peer[2] = {{{2, 0, 0, 0, 0, 1}}, {{2, 0, 0, 0, 1, 1}}};
 static struct { uint16_t port, length; _Alignas(8) uint8_t data[1600]; } captures[64];
 static unsigned capture_count;
@@ -57,8 +58,8 @@ static void reset(void)
 
 static void send_udp(uint32_t target, int accepted)
 {
-    struct ps_addr dst = { .ip_be = target, .port = 9001 };
-    assert(ps_udp_sendto(&rt, 9000, "arp-test", 8, &dst) == (accepted ? 8 : -EIO));
+    struct ps_sockaddr dst = { .ip_be = target, .port = 9001 };
+    assert(ps_sendto(udp_fd, "arp-test", 8, &dst) == (accepted ? 8 : -EIO));
     assert(!rt.graph.q_count && !rt.active_output);
 }
 
@@ -353,7 +354,9 @@ int main(void)
         assert(callbacks[i]);
     }
     assert(route_init_connected(&rt) == 0 && graph_init(&rt) == 0);
-    assert(ps_udp_bind(&rt, 9000) == 0);
+    assert(socket_subsystem_init(&rt) == 0);
+    udp_fd = ps_socket(PS_AF_INET, PS_SOCK_DGRAM, 0);
+    assert(udp_fd >= 0 && ps_bind(udp_fd, &(struct ps_sockaddr){ .port = 9000 }) == 0);
     basic_resolution();
     retry_timeout();
     capacities();

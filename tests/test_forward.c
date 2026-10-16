@@ -45,7 +45,8 @@ static void reset(void)
     assert(rte_mempool_avail_count(rt.mbuf_pool) == POOL_SIZE);
     memset(&rt.neighbours, 0, sizeof(rt.neighbours));
     memset(&rt.icmp_errors, 0, sizeof(rt.icmp_errors));
-    memset(&rt.udp, 0, sizeof(rt.udp));
+    socket_subsystem_fini(&rt);
+    assert(socket_subsystem_init(&rt) == 0);
     assert(route_init_connected(&rt) == 0 && graph_init(&rt) == 0);
     assert(neighbour_learn(&rt.neighbours, rt.ports[0].id, A, &peers[0]) == 0);
     assert(neighbour_learn(&rt.neighbours, rt.ports[1].id, B, &peers[1]) == 0);
@@ -309,18 +310,19 @@ static void udp_error_tests(void)
         }
     }
     reset();
-    assert(ps_udp_bind(&rt, 9000) == 0);
-    for (unsigned i = 0; i <= PS_UDP_RX_QUEUE_SIZE; i++)
+    ps_fd_t udp_fd = ps_socket(PS_AF_INET, PS_SOCK_DGRAM, 0);
+    assert(udp_fd >= 0 && ps_bind(udp_fd, &(struct ps_sockaddr){ .port = 9000 }) == 0);
+    for (unsigned i = 0; i <= PS_DGRAM_QUEUE_SIZE; i++)
         submit(udp_packet(A, rt.ports[0].ip_be, 9000, 41, 1), 0,
-               i == PS_UDP_RX_QUEUE_SIZE ? DROP_UDP_RX_QUEUE_FULL : DROP_NONE);
+               i == PS_DGRAM_QUEUE_SIZE ? DROP_UDP_RX_QUEUE_FULL : DROP_NONE);
     uint8_t received[13];
-    struct ps_addr source;
-    for (unsigned i = 0; i < PS_UDP_RX_QUEUE_SIZE; i++) {
-        assert(ps_udp_recvfrom(&rt, 9000, received, sizeof(received), &source) == (ssize_t)sizeof(received));
+    struct ps_sockaddr source;
+    for (unsigned i = 0; i < PS_DGRAM_QUEUE_SIZE; i++) {
+        assert(ps_recvfrom(udp_fd, received, sizeof(received), &source) == (ssize_t)sizeof(received));
         assert(source.ip_be == A && source.port == 50001);
         for (unsigned j = 0; j < sizeof(received); j++) assert(received[j] == 28 + j);
     }
-    assert(ps_udp_recvfrom(&rt, 9000, received, sizeof(received), &source) == -EAGAIN);
+    assert(ps_recvfrom(udp_fd, received, sizeof(received), &source) == -EAGAIN);
     assert(!capture_count && !rt.icmp_errors.generated);
 
     reset();

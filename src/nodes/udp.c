@@ -35,8 +35,8 @@ void udp_input_node_run(struct app_runtime *rt, const struct node_frame *in,
             node_drop(rt, NODE_UDP_INPUT, m, &ctx, DROP_UDP_BAD_CHECKSUM, 1);
             continue;
         }
-        struct ps_addr source = { .ip_be = ip->src_addr, .port = rte_be_to_cpu_16(udp->src_port) };
-        int rc = udp_deliver(rt, rte_be_to_cpu_16(udp->dst_port), &source, udp + 1, length - sizeof(*udp));
+        struct ps_sockaddr source = { .ip_be = ip->src_addr, .port = rte_be_to_cpu_16(udp->src_port) };
+        int rc = udp_deliver(rt, ip->dst_addr, rte_be_to_cpu_16(udp->dst_port), &source, udp + 1, length - sizeof(*udp));
         if (rc < 0) {
             if (rc == -ENOENT) icmp_send_error(rt, m, &ctx, 3, 3, 0, rte_get_timer_cycles());
             enum drop_reason reason = rc == -ENOENT ? DROP_UDP_UNBOUND_PORT :

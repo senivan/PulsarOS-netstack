@@ -20,7 +20,7 @@ void ipv4_route_node_run(struct app_runtime *rt, const struct node_frame *in,
         }
         const struct port_state *port = netif_by_id(rt, route.netif_id);
         ctx.egress_port_id = port->port_id;
-        ctx.src_ip_be = route.source_ip_be;
+        if (!ctx.src_ip_be) ctx.src_ip_be = route.source_ip_be;
         ctx.next_hop_ip_be = route.next_hop_be;
         node_enqueue(out, NODE_UDP_OUTPUT, in->pkts[i], &ctx);
     }
