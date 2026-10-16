@@ -31,7 +31,7 @@ int app_init(const char *progname, const struct app_config *conf, struct app_run
     memset(rt, 0, sizeof(*rt));
     rt->ipv4_forwarding = conf->ipv4_forwarding;
     if (eal_init(progname, conf) < 0) return -1;
-    if (port_init(conf, rt) < 0 || graph_init(rt) < 0) {
+    if (port_init(conf, rt) < 0 || graph_init(rt) < 0 || socket_subsystem_init(rt) < 0) {
         app_fini(rt);
         return -1;
     }
@@ -88,6 +88,7 @@ void app_dump_stats(const struct app_runtime *rt)
 
 void app_fini(struct app_runtime *rt)
 {
+    socket_subsystem_fini(rt);
     neighbour_fini(rt);
     port_fini(rt);
     rte_eal_cleanup();

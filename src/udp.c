@@ -5,32 +5,15 @@
 #include "runtime.h"
 #include "udp.h"
 
-static struct udp_endpoint *endpoint(struct app_runtime *rt, uint16_t port)
-{
-    if (!port) return NULL;
-    for (unsigned i = 0; i < PS_UDP_MAX_ENDPOINTS; i++)
-        if (rt->udp.entries[i].port == port) return &rt->udp.entries[i];
-    return NULL;
-}
-
-int ps_udp_bind(struct app_runtime *rt, uint16_t port)
-{
-    if (!rt || !port) return -EINVAL;
-    if (endpoint(rt, port)) return -EADDRINUSE;
-    for (unsigned i = 0; i < PS_UDP_MAX_ENDPOINTS; i++) {
-        if (!rt->udp.entries[i].port) { rt->udp.entries[i].port = port; return 0; }
-    }
-    return -ENOSPC;
-}
-
-int udp_deliver(struct app_runtime *rt, uint16_t port, const struct ps_addr *source,
+int udp_deliver(struct app_runtime *rt, uint32_t local_ip_be, uint16_t port, const struct ps_sockaddr *source,
                 const void *payload, size_t len)
 {
-    struct udp_endpoint *ep = endpoint(rt, port);
-    if (!ep) return -ENOENT;
-    if (len > PS_UDP_MAX_PAYLOAD) return -EMSGSIZE;
-    if (ep->count == PS_UDP_RX_QUEUE_SIZE) return -ENOBUFS;
-    struct udp_datagram *datagram = &ep->queue[(ep->head + ep->count) % PS_UDP_RX_QUEUE_SIZE];
+    struct ps_socket_entry *s = socket_bound(rt, PS_SOCK_DGRAM, local_ip_be, port);
+    if (!s || (s->remote.port && (s->remote.port != source->port || s->remote.ip_be != source->ip_be))) return -ENOENT;
+    struct udp_endpoint *ep = &s->transport.udp;
+    if (len > PS_DGRAM_MAX_PAYLOAD) return -EMSGSIZE;
+    if (ep->count == PS_DGRAM_QUEUE_SIZE) return -ENOBUFS;
+    struct udp_datagram *datagram = &ep->queue[(ep->head + ep->count) % PS_DGRAM_QUEUE_SIZE];
     datagram->source = *source;
     datagram->length = (uint16_t)len;
     if (len) memcpy(datagram->payload, payload, len);
@@ -38,18 +21,15 @@ int udp_deliver(struct app_runtime *rt, uint16_t port, const struct ps_addr *sou
     return 0;
 }
 
-ssize_t ps_udp_recvfrom(struct app_runtime *rt, uint16_t port, void *buf,
-                        size_t len, struct ps_addr *source)
+ssize_t udp_recv(struct ps_socket_entry *s, void *buf, size_t len, struct ps_sockaddr *source)
 {
-    if (!rt || !source || (!buf && len)) return -EINVAL;
-    struct udp_endpoint *ep = endpoint(rt, port);
-    if (!ep) return -ENOENT;
+    struct udp_endpoint *ep = &s->transport.udp;
     if (!ep->count) return -EAGAIN;
     struct udp_datagram *datagram = &ep->queue[ep->head];
     if (len < datagram->length) return -EMSGSIZE;
     *source = datagram->source;
     if (datagram->length) memcpy(buf, datagram->payload, datagram->length);
-    ep->head = (ep->head + 1) % PS_UDP_RX_QUEUE_SIZE;
+    ep->head = (ep->head + 1) % PS_DGRAM_QUEUE_SIZE;
     ep->count--;
     return datagram->length;
 }
@@ -62,13 +42,10 @@ static ssize_t send_failure(struct app_runtime *rt, enum drop_reason reason, int
     return -error;
 }
 
-ssize_t ps_udp_sendto(struct app_runtime *rt, uint16_t source_port, const void *buf,
-                      size_t len, const struct ps_addr *destination)
+ssize_t udp_send(struct app_runtime *rt, struct ps_socket_entry *s, const void *buf,
+                  size_t len, const struct ps_sockaddr *destination)
 {
-    if (!rt || !destination || !destination->port || (!buf && len)) return -EINVAL;
-    if (rt->active_output) return -EBUSY;
-    if (!endpoint(rt, source_port)) return -ENOENT;
-    if (len > PS_UDP_MAX_PAYLOAD)
+    if (len > PS_DGRAM_MAX_PAYLOAD)
         return send_failure(rt, DROP_MTU, EMSGSIZE);
     struct route_result route;
     if (ipv4_route_lookup(rt, destination->ip_be, &route) == DROP_NONE &&
@@ -84,7 +61,8 @@ ssize_t ps_udp_sendto(struct app_runtime *rt, uint16_t source_port, const void *
     if (len) memcpy(payload, buf, len);
     struct node_frame frame = { .count = 1 };
     frame.pkts[0] = m;
-    frame.ctxs[0].src_port = source_port;
+    frame.ctxs[0].src_port = s->local.port;
+    frame.ctxs[0].src_ip_be = s->local.ip_be;
     frame.ctxs[0].dst_port = destination->port;
     frame.ctxs[0].dst_ip_be = destination->ip_be;
     frame.ctxs[0].ip_protocol = IPPROTO_UDP;
