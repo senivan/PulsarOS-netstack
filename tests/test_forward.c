@@ -680,6 +680,7 @@ int main(void)
     udp_error_tests();
     forwarding_tests();
     forwarding_resolution_tests();
+    socket_subsystem_fini(&rt);
     for (unsigned i = 0; i < 2; i++) {
         assert(rte_eth_remove_tx_callback(rt.ports[i].port_id, 0, callbacks[i]) == 0);
         rte_free((void *)callbacks[i]);

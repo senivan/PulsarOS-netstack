@@ -2,6 +2,7 @@
 
 #include "ps_socket.h"
 #include "udp.h"
+#include "tcp.h"
 
 struct app_runtime;
 
@@ -12,6 +13,7 @@ struct ps_socket_entry {
     struct ps_sockaddr local, remote;
     union {
         struct udp_endpoint udp;
+        struct tcp_connection tcp;
     } transport;
 };
 

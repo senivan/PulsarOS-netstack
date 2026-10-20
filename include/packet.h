@@ -16,6 +16,8 @@ enum drop_reason {
     DROP_NEIGHBOUR_QUEUE_FULL, DROP_NEIGHBOUR_PENDING_FULL,
     DROP_NEIGHBOUR_RESOLUTION_TIMEOUT, DROP_NEIGHBOUR_CANCELLED,
     DROP_TTL_EXPIRED,
+    DROP_INVALID_TCP, DROP_TCP_BAD_CHECKSUM, DROP_TCP_INVALID_STATE,
+    DROP_TCP_NO_SOCKET, DROP_TCP_BACKLOG_FULL, DROP_TCP_OUT_OF_ORDER,
     DROP_REASON_MAX
 };
 
@@ -23,7 +25,7 @@ struct packet_ctx {
     uint16_t ingress_port_id, egress_port_id; /* DPDK port IDs, not interface indices. */
     uint16_t l3_offset, l4_offset;
     uint32_t src_ip_be, dst_ip_be, next_hop_ip_be;
-    uint16_t src_port, dst_port; /* Host order, for locally generated UDP. */
+    uint16_t src_port, dst_port; /* Host order. */
     uint8_t ip_protocol;
     uint8_t drop_reason;
     uint8_t report_acceptance;

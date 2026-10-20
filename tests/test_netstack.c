@@ -730,7 +730,7 @@ int main(void)
     m = echo(0); ip_header(m)->total_length = rte_cpu_to_be_16(27); ip_checksum(m); submit(m, DROP_INVALID_ICMP);
     m = echo(1); rte_pktmbuf_mtod_offset(m, uint8_t *, 42)[0] ^= 1; submit(m, DROP_INVALID_ICMP);
     m = echo(0); ip_header(m)->next_proto_id = IPPROTO_UDP; ip_checksum(m); submit(m, DROP_UDP_BAD_LENGTH);
-    m = echo(0); ip_header(m)->next_proto_id = IPPROTO_TCP; ip_checksum(m); submit(m, DROP_UNSUPPORTED_PROTOCOL);
+    m = echo(0); ip_header(m)->next_proto_id = IPPROTO_TCP; ip_checksum(m); submit(m, DROP_INVALID_TCP);
     m = echo(0); ip_header(m)->next_proto_id = 99; ip_checksum(m); submit(m, DROP_UNSUPPORTED_PROTOCOL);
     assert(rt.graph.nodes[NODE_UDP_INPUT].stats.packets == 1);
     assert(rt.graph.nodes[NODE_TCP_INPUT].stats.packets == 1);
@@ -768,6 +768,7 @@ int main(void)
     assert(graph_submit(&rt, NODE_ETH_INPUT, &burst) == -1);
     assert(rte_mempool_avail_count(rt.mbuf_pool) == 1023);
     multi_tests();
+    socket_subsystem_fini(&rt);
     assert(rte_eth_remove_tx_callback(rt.ports[0].port_id, 0, cb) == 0);
     rte_free((void *)cb); /* Single queue thread; no callback remains in flight. */
     rte_eth_dev_stop(rt.ports[0].port_id);

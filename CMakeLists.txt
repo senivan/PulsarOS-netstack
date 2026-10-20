@@ -7,9 +7,9 @@ find_package(PkgConfig REQUIRED)
 pkg_check_modules(DPDK REQUIRED IMPORTED_TARGET libdpdk>=22.11)
 
 add_library(netstack STATIC
-  src/socket.c src/config.c src/dpdk_port.c src/graph.c src/runtime.c src/neighbour.c src/neighbour_resolution.c src/udp.c src/route.c src/icmp_error.c
+  src/socket.c src/tcp.c src/tcp_output.c src/tcp_timer.c src/config.c src/dpdk_port.c src/graph.c src/runtime.c src/neighbour.c src/neighbour_resolution.c src/udp.c src/route.c src/icmp_error.c
   src/nodes/arp.c src/nodes/drop.c src/nodes/ingress.c src/nodes/icmp.c
-  src/nodes/register.c src/nodes/tx.c src/nodes/output.c src/nodes/udp.c src/nodes/forward.c)
+  src/nodes/register.c src/nodes/tx.c src/nodes/output.c src/nodes/udp.c src/nodes/tcp.c src/nodes/forward.c)
 target_include_directories(netstack PUBLIC include)
 target_link_libraries(netstack PUBLIC PkgConfig::DPDK)
 target_compile_options(netstack PRIVATE -Wall -Wextra -Wpedantic -Werror)
@@ -18,9 +18,19 @@ target_link_libraries(netstack-dp PRIVATE netstack)
 add_executable(udp-echo examples/udp_echo.c)
 target_link_libraries(udp-echo PRIVATE netstack)
 target_compile_options(udp-echo PRIVATE -Wall -Wextra -Wpedantic -Werror)
+add_executable(tcp-echo examples/tcp_echo.c)
+target_link_libraries(tcp-echo PRIVATE netstack)
+target_compile_options(tcp-echo PRIVATE -Wall -Wextra -Wpedantic -Werror)
 
 include(CTest)
 if(BUILD_TESTING)
+  add_executable(test-tcp-initiator tests/tcp_initiator.c)
+  target_link_libraries(test-tcp-initiator PRIVATE netstack)
+  target_compile_options(test-tcp-initiator PRIVATE -Wall -Wextra -Wpedantic -Werror)
+  add_executable(test-tcp tests/test_tcp.c)
+  target_link_libraries(test-tcp PRIVATE netstack)
+  target_compile_options(test-tcp PRIVATE -Wall -Wextra -Wpedantic -Werror -UNDEBUG)
+  add_test(NAME netstack-tcp COMMAND test-tcp)
   add_executable(test-socket tests/test_socket.c)
   target_link_libraries(test-socket PRIVATE netstack)
   target_compile_options(test-socket PRIVATE -Wall -Wextra -Wpedantic -Werror -UNDEBUG)

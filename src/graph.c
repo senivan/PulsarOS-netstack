@@ -128,7 +128,8 @@ void graph_dump_stats(const struct app_runtime *rt)
         "udp_bad_checksum", "udp_unbound_port", "udp_rx_queue_full",
         "mbuf_allocation_failed", "no_headroom", "no_route", "invalid_egress", "forwarding_disabled",
         "neighbour_queue_full", "neighbour_pending_full", "neighbour_resolution_timeout", "neighbour_cancelled",
-        "ttl_expired"
+        "ttl_expired", "invalid_tcp", "tcp_bad_checksum", "tcp_invalid_state",
+        "tcp_no_socket", "tcp_backlog_full", "tcp_out_of_order"
     };
     puts("node statistics:");
     for (unsigned i = 0; i < NODE_MAX; i++) {

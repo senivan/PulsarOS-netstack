@@ -1,6 +1,7 @@
 #include <errno.h>
 #include <limits.h>
 #include <string.h>
+#include <rte_cycles.h>
 #include "runtime.h"
 
 static struct app_runtime *active;
@@ -52,6 +53,7 @@ struct ps_socket_entry *socket_allocate(struct app_runtime *rt, int type)
 
 struct ps_socket_entry *socket_bound(struct app_runtime *rt, int type, uint32_t ip_be, uint16_t port)
 {
+    if (!port) return NULL;
     for (unsigned i = 0; i < PS_SOCKET_MAX; i++) {
         struct ps_socket_entry *s = &rt->sockets.entries[i];
         if (s->allocated && s->type == type && s->local.port == port &&
@@ -118,7 +120,8 @@ int ps_close(ps_fd_t fd)
 {
     struct ps_socket_entry *s = get(fd);
     if (!s) return -EBADF;
-    memset(s, 0, sizeof(*s));
+    if (s->type == PS_SOCK_STREAM) tcp_close(active, s, rte_get_timer_cycles());
+    else memset(s, 0, sizeof(*s));
     return 0;
 }
 
@@ -150,7 +153,7 @@ int ps_connect(ps_fd_t fd, const struct ps_sockaddr *addr)
     struct ps_socket_entry *s = get(fd);
     if (!s) return -EBADF;
     if (!addr || !addr->port || !ipv4_destination_valid(active, addr->ip_be)) return -EINVAL;
-    if (s->type == PS_SOCK_STREAM) return -EOPNOTSUPP;
+    if (s->type == PS_SOCK_STREAM) return tcp_connect(active, s, addr);
     if (!s->local.port) {
         int rc = socket_bind(active, s, &(struct ps_sockaddr){0});
         if (rc) return rc;
@@ -161,27 +164,36 @@ int ps_connect(ps_fd_t fd, const struct ps_sockaddr *addr)
 
 int ps_listen(ps_fd_t fd, int backlog)
 {
-    (void)backlog;
-    return get(fd) ? -EOPNOTSUPP : -EBADF;
+    struct ps_socket_entry *s = get(fd);
+    if (!s) return -EBADF;
+    if (s->type != PS_SOCK_STREAM) return -EOPNOTSUPP;
+    return tcp_listen(s, backlog);
 }
 
 ps_fd_t ps_accept(ps_fd_t fd, struct ps_sockaddr *peer)
 {
-    (void)peer;
-    return get(fd) ? -EOPNOTSUPP : -EBADF;
+    struct ps_socket_entry *s = get(fd);
+    if (!s) return -EBADF;
+    if (s->type != PS_SOCK_STREAM) return -EOPNOTSUPP;
+    return tcp_accept(active, s, peer);
 }
 
 ssize_t ps_send(ps_fd_t fd, const void *buf, size_t len)
 {
     struct ps_socket_entry *s = get(fd);
     if (!s) return -EBADF;
-    if (s->type != PS_SOCK_DGRAM) return -EOPNOTSUPP;
+    if (!buf && len) return -EINVAL;
+    if (s->type == PS_SOCK_STREAM) return tcp_send(active, s, buf, len);
     if (!s->remote.port) return -ENOTCONN;
     return ps_sendto(fd, buf, len, &s->remote);
 }
 
 ssize_t ps_recv(ps_fd_t fd, void *buf, size_t len)
 {
+    struct ps_socket_entry *s = get(fd);
+    if (!s) return -EBADF;
+    if (!buf && len) return -EINVAL;
+    if (s->type == PS_SOCK_STREAM) return tcp_recv(active, s, buf, len);
     struct ps_sockaddr peer;
     return ps_recvfrom(fd, buf, len, &peer);
 }

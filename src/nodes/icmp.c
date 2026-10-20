@@ -53,17 +53,3 @@ void icmp_input_node_run(struct app_runtime *rt, const struct node_frame *in,
         node_enqueue(out, NODE_ETH_OUTPUT, m, &ctx);
     }
 }
-
-static void unsupported(struct app_runtime *rt, const struct node_frame *in, enum node_id node)
-{
-    for (uint16_t i = 0; i < in->count; i++) {
-        struct packet_ctx ctx = in->ctxs[i];
-        node_drop(rt, node, in->pkts[i], &ctx, DROP_UNSUPPORTED_PROTOCOL, 0);
-    }
-}
-
-void tcp_input_node_run(struct app_runtime *rt, const struct node_frame *in, struct node_output *out)
-{
-    (void)out;
-    unsupported(rt, in, NODE_TCP_INPUT);
-}
