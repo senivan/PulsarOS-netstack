@@ -52,7 +52,9 @@ unsigned app_step(struct app_runtime *rt)
         port->rx_packets += frame.count;
         if (frame.count) graph_submit(rt, NODE_ETH_INPUT, &frame);
     }
-    neighbour_tick(rt, rte_get_timer_cycles());
+    uint64_t now = rte_get_timer_cycles();
+    neighbour_tick(rt, now);
+    tcp_tick(rt, now);
     return received;
 }
 
@@ -71,6 +73,10 @@ void app_dump_stats(const struct app_runtime *rt)
            (unsigned long long)rt->icmp_errors.suppressed,
            (unsigned long long)rt->icmp_errors.rate_limited,
            (unsigned long long)rt->icmp_errors.failed);
+    printf("TCP: syns=%llu established=%llu closed=%llu resets=%llu retransmissions=%llu timeouts=%llu\n",
+           (unsigned long long)rt->tcp_stats.syns, (unsigned long long)rt->tcp_stats.established,
+           (unsigned long long)rt->tcp_stats.closed, (unsigned long long)rt->tcp_stats.resets,
+           (unsigned long long)rt->tcp_stats.retransmissions, (unsigned long long)rt->tcp_stats.timeouts);
     printf("transmitted packets: %llu\n", (unsigned long long)rt->tx_packets);
     for (uint16_t i = 0; i < rt->port_count; i++) {
         const struct port_state *port = &rt->ports[i];
