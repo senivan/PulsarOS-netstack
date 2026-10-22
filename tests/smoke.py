@@ -104,6 +104,13 @@ def main():
                         sent += 1
                 ip("addr", "add", "192.0.2.1/24", "dev", "ns-peer")
                 ip("neigh", "replace", "192.0.2.2", "lladdr", host_mac, "nud", "permanent", "dev", "ns-peer")
+                if test_udp:
+                    with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as client:
+                        client.settimeout(2)
+                        client.connect(("192.0.2.2", 9000))
+                        client.send(b"generic-linux-udp")
+                        assert client.recv(64) == b"generic-linux-udp"
+                    sent += 1
                 with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as client:
                     client.settimeout(2)
                     client.bind(("192.0.2.1", 0))
