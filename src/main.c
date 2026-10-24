@@ -1,40 +1,119 @@
+#define _GNU_SOURCE
+#include <errno.h>
 #include <signal.h>
 #include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <rte_cycles.h>
+#include <rte_pause.h>
 #include "config.h"
 #include "runtime.h"
+#include "daemon.h"
 
-static struct app_runtime *active_runtime;
+static atomic_int stopping;
 
 static void request_stop(int signo)
 {
     (void)signo;
-    if (active_runtime) active_runtime->stop = 1;
+    atomic_store_explicit(&stopping, 1, memory_order_relaxed);
+}
+
+static int capacity(const char *text, unsigned limit, unsigned *out)
+{
+    if (!*text) return -1;
+    for (const char *p = text; *p; p++) if (*p < '0' || *p > '9') return -1;
+    char *end;
+    errno = 0;
+    unsigned long n = strtoul(text, &end, 10);
+    if (errno || *end || !n || n > limit) return -1;
+    *out = (unsigned)n;
+    return 0;
 }
 
 int main(int argc, char **argv)
 {
-    if (argc != 2) { fprintf(stderr, "usage: %s <config.conf>\n", argv[0]); return 2; }
+    _Static_assert(DAEMON_SOCKET_MAX == PS_SOCKET_MAX, "control map must hold the whole core registry");
+    if (argc < 2) goto usage;
+    const char *path = PS_DEFAULT_SOCKET;
+    unsigned max_clients = DAEMON_CLIENT_MAX, max_sockets = PS_SOCKET_MAX;
+    for (int i = 2; i < argc; i += 2) {
+        if (i + 1 == argc) goto usage;
+        if (!strcmp(argv[i], "--socket")) path = argv[i + 1];
+        else if (!strcmp(argv[i], "--max-sockets")) {
+            if (capacity(argv[i + 1], PS_SOCKET_MAX, &max_sockets)) goto usage;
+        } else if (!strcmp(argv[i], "--max-clients")) {
+            if (capacity(argv[i + 1], DAEMON_CLIENT_MAX, &max_clients)) goto usage;
+        } else goto usage;
+    }
     struct app_config conf;
     static struct app_runtime rt;
-    char err[256];
-    if (app_config_load(argv[1], &conf, err, sizeof(err)) < 0) {
-        fprintf(stderr, "failed to load config: %s\n", err);
+    char error[256];
+    if (app_config_load(argv[1], &conf, error, sizeof(error))) {
+        fprintf(stderr, "failed to load config: %s\n", error);
         return 1;
     }
-    if (app_init(argv[0], &conf, &rt) < 0) {
+    struct daemon_service *service = calloc(1, sizeof(*service));
+    if (!service) return 1;
+    int rc = daemon_prepare(service, path, max_clients, max_sockets);
+    if (rc) {
+        fprintf(stderr, "IPC startup failed: %s\n", strerror(-rc));
+        daemon_release(service);
+        free(service);
+        return 1;
+    }
+    cpu_set_t allowed;
+    if (sched_getaffinity(0, sizeof(allowed), &allowed)) {
+        daemon_release(service);
+        free(service);
+        return 1;
+    }
+    service->control_cpus = allowed;
+    if (conf.lcore < CPU_SETSIZE) CPU_CLR(conf.lcore, &service->control_cpus);
+    if (!CPU_COUNT(&service->control_cpus)) service->control_cpus = allowed;
+    struct sigaction action = { .sa_handler = request_stop };
+    sigemptyset(&action.sa_mask);
+    sigaction(SIGINT, &action, NULL);
+    sigaction(SIGTERM, &action, NULL);
+    if (app_init(argv[0], &conf, &rt)) {
         fprintf(stderr, "netstack initialization failed\n");
+        daemon_release(service);
+        free(service);
         return 1;
     }
-    active_runtime = &rt;
-    signal(SIGINT, request_stop);
-    signal(SIGTERM, request_stop);
+    rt.sockets.capacity = max_sockets;
+    rc = daemon_start(service);
+    if (rc) {
+        fprintf(stderr, "control thread startup failed: %s\n", strerror(-rc));
+        app_fini(&rt);
+        daemon_release(service);
+        free(service);
+        return 1;
+    }
     if (rt.port_count == 1) puts("initialized one DPDK port; entering host input loop");
     else printf("initialized %u DPDK ports; entering host input loop\n", rt.port_count);
+    printf("IPC listening on %s; max_sockets=%u max_clients=%u\n", path, max_sockets, max_clients);
     fflush(stdout);
-    int rc = app_run(&rt);
+    while (!atomic_load_explicit(&stopping, memory_order_relaxed) && !atomic_load(&service->failed)) {
+        unsigned commands = daemon_progress(service, &rt);
+        if (!app_step(&rt) && !commands) rte_pause();
+    }
+    atomic_store_explicit(&service->stopping, 1, memory_order_release);
+    while (!atomic_load_explicit(&service->done, memory_order_acquire)) {
+        daemon_progress(service, &rt);
+        app_step(&rt);
+    }
+    pthread_join(service->thread, NULL);
+    uint64_t start = rte_get_timer_cycles();
+    while (rte_get_timer_cycles() - start < rte_get_timer_hz()) app_step(&rt);
     neighbour_fini(&rt);
     app_dump_stats(&rt);
+    rc = atomic_load(&service->failed);
     app_fini(&rt);
-    active_runtime = NULL;
+    daemon_release(service);
+    free(service);
     return rc ? 1 : 0;
+usage:
+    fprintf(stderr, "usage: %s <config.conf> [--socket PATH] [--max-sockets 1..%u] [--max-clients 1..%u]\n",
+            argv[0], PS_SOCKET_MAX, DAEMON_CLIENT_MAX);
+    return 2;
 }
