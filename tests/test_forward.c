@@ -310,19 +310,19 @@ static void udp_error_tests(void)
         }
     }
     reset();
-    ps_fd_t udp_fd = ps_socket(PS_AF_INET, PS_SOCK_DGRAM, 0);
-    assert(udp_fd >= 0 && ps_bind(udp_fd, &(struct ps_sockaddr){ .port = 9000 }) == 0);
+    ps_fd_t udp_fd = core_socket(&rt, PS_AF_INET, PS_SOCK_DGRAM, 0);
+    assert(udp_fd >= 0 && core_bind(&rt, udp_fd, &(struct ps_sockaddr){ .port = 9000 }) == 0);
     for (unsigned i = 0; i <= PS_DGRAM_QUEUE_SIZE; i++)
         submit(udp_packet(A, rt.ports[0].ip_be, 9000, 41, 1), 0,
                i == PS_DGRAM_QUEUE_SIZE ? DROP_UDP_RX_QUEUE_FULL : DROP_NONE);
     uint8_t received[13];
     struct ps_sockaddr source;
     for (unsigned i = 0; i < PS_DGRAM_QUEUE_SIZE; i++) {
-        assert(ps_recvfrom(udp_fd, received, sizeof(received), &source) == (ssize_t)sizeof(received));
+        assert(core_recvfrom(&rt, udp_fd, received, sizeof(received), &source) == (ssize_t)sizeof(received));
         assert(source.ip_be == A && source.port == 50001);
         for (unsigned j = 0; j < sizeof(received); j++) assert(received[j] == 28 + j);
     }
-    assert(ps_recvfrom(udp_fd, received, sizeof(received), &source) == -EAGAIN);
+    assert(core_recvfrom(&rt, udp_fd, received, sizeof(received), &source) == -EAGAIN);
     assert(!capture_count && !rt.icmp_errors.generated);
 
     reset();

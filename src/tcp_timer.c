@@ -6,7 +6,7 @@
 
 void tcp_tick(struct app_runtime *rt, uint64_t now)
 {
-    for (unsigned i = 0; i < PS_SOCKET_MAX; i++) {
+    for (unsigned i = 0; i < rt->sockets.capacity; i++) {
         struct ps_socket_entry *s = &rt->sockets.entries[i];
         if (!s->allocated || s->type != PS_SOCK_STREAM) continue;
         struct tcp_connection *c = &s->transport.tcp;

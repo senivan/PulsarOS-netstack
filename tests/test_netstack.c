@@ -198,27 +198,27 @@ static void udp_tests(void)
     struct ps_sockaddr address = { .ip_be = rte_cpu_to_be_32(RTE_IPV4(192u, 0, 2, 1)), .port = 50001 };
     struct ps_sockaddr source;
     assert(socket_subsystem_init(&rt) == 0);
-    udp_fd = ps_socket(PS_AF_INET, PS_SOCK_DGRAM, 0);
-    udp_second = ps_socket(PS_AF_INET, PS_SOCK_DGRAM, 0);
+    udp_fd = core_socket(&rt, PS_AF_INET, PS_SOCK_DGRAM, 0);
+    udp_second = core_socket(&rt, PS_AF_INET, PS_SOCK_DGRAM, 0);
     assert(udp_fd >= 0 && udp_second >= 0);
-    assert(ps_bind(udp_fd, NULL) == -EINVAL);
-    assert(ps_bind(udp_fd, &(struct ps_sockaddr){ .port = 9000 }) == 0);
-    assert(ps_bind(udp_second, &(struct ps_sockaddr){ .port = 9000 }) == -EADDRINUSE);
-    assert(ps_bind(udp_second, &(struct ps_sockaddr){ .port = 9001 }) == 0);
-    assert(ps_recvfrom(udp_fd, received, sizeof(received), &source) == -EAGAIN);
-    assert(ps_recvfrom(-1, received, sizeof(received), &source) == -EBADF);
+    assert(core_bind(&rt, udp_fd, NULL) == -EINVAL);
+    assert(core_bind(&rt, udp_fd, &(struct ps_sockaddr){ .port = 9000 }) == 0);
+    assert(core_bind(&rt, udp_second, &(struct ps_sockaddr){ .port = 9000 }) == -EADDRINUSE);
+    assert(core_bind(&rt, udp_second, &(struct ps_sockaddr){ .port = 9001 }) == 0);
+    assert(core_recvfrom(&rt, udp_fd, received, sizeof(received), &source) == -EAGAIN);
+    assert(core_recvfrom(&rt, -1, received, sizeof(received), &source) == -EBADF);
 
     const unsigned lengths[] = {0, 1, 2, 13, 64, PS_DGRAM_MAX_PAYLOAD};
     for (unsigned j = 0; j < sizeof(lengths) / sizeof(lengths[0]); j++) {
         unsigned len = lengths[j];
         for (int checksum = 0; checksum <= 1; checksum++) {
             submit(udp_packet(payload, len, 9000, checksum), DROP_NONE);
-            assert(ps_recvfrom(udp_fd, received, sizeof(received), &source) == (ssize_t)len);
+            assert(core_recvfrom(&rt, udp_fd, received, sizeof(received), &source) == (ssize_t)len);
             assert(!memcmp(received, payload, len));
             assert(source.ip_be == address.ip_be && source.port == address.port);
         }
         uint16_t id = rt.next_ip_id;
-        assert(ps_sendto(udp_fd, payload, len, &address) == (ssize_t)len);
+        assert(core_sendto(&rt, udp_fd, payload, len, &address) == (ssize_t)len);
         check_udp_output(payload, len, id);
         assert(rte_mempool_avail_count(rt.mbuf_pool) == 1023);
     }
@@ -226,15 +226,15 @@ static void udp_tests(void)
         sum_bytes((const uint8_t *)&address.ip_be, 4) + IPPROTO_UDP + 10 + 9000 + 50001 + 10;
     uint16_t word = (uint16_t)~folded(pseudo_sum);
     uint8_t zero_checksum_payload[] = { (uint8_t)(word >> 8), (uint8_t)word };
-    assert(ps_sendto(udp_fd, zero_checksum_payload, 2, &address) == 2);
+    assert(core_sendto(&rt, udp_fd, zero_checksum_payload, 2, &address) == 2);
     assert(((const struct rte_udp_hdr *)(captured + 34))->dgram_cksum == UINT16_MAX);
     submit(udp_packet(zero_checksum_payload, 2, 9000, 1), DROP_NONE);
-    assert(ps_recvfrom(udp_fd, received, sizeof(received), &source) == 2);
+    assert(core_recvfrom(&rt, udp_fd, received, sizeof(received), &source) == 2);
     assert(!memcmp(received, zero_checksum_payload, 2));
     submit(udp_packet(payload, 13, 9001, 1), DROP_NONE);
-    assert(ps_recvfrom(udp_fd, received, sizeof(received), &source) == -EAGAIN);
-    assert(ps_recvfrom(udp_second, received, 12, &source) == -EMSGSIZE);
-    assert(ps_recvfrom(udp_second, received, sizeof(received), &source) == 13);
+    assert(core_recvfrom(&rt, udp_fd, received, sizeof(received), &source) == -EAGAIN);
+    assert(core_recvfrom(&rt, udp_second, received, 12, &source) == -EMSGSIZE);
+    assert(core_recvfrom(&rt, udp_second, received, sizeof(received), &source) == 13);
     assert(!memcmp(received, payload, 13));
     unsigned tx_before = captured_count;
     uint64_t unbound_before = rt.graph.drop_reasons[DROP_UDP_UNBOUND_PORT];
@@ -260,7 +260,7 @@ static void udp_tests(void)
     ip_header(m)->total_length = rte_cpu_to_be_16(48);
     ip_checksum(m);
     submit(m, DROP_NONE);
-    assert(ps_recvfrom(udp_fd, received, sizeof(received), &source) == 13);
+    assert(core_recvfrom(&rt, udp_fd, received, sizeof(received), &source) == 13);
     assert(!memcmp(received, payload, 13));
 
     for (unsigned cycle = 0; cycle < 3; cycle++) {
@@ -270,7 +270,7 @@ static void udp_tests(void)
         }
         submit(udp_packet(payload, 1, 9000, 1), DROP_UDP_RX_QUEUE_FULL);
         for (unsigned i = 0; i < PS_DGRAM_QUEUE_SIZE; i++) {
-            assert(ps_recvfrom(udp_fd, received, sizeof(received), &source) == 1);
+            assert(core_recvfrom(&rt, udp_fd, received, sizeof(received), &source) == 1);
             assert(received[0] == i);
         }
     }
@@ -282,41 +282,41 @@ static void udp_tests(void)
     for (unsigned i = 0; i < 1023; i++) { held[i] = rte_pktmbuf_alloc(rt.mbuf_pool); assert(held[i]); }
     for (unsigned i = 0; i < 1023; i++) if (held[i] != original) rte_pktmbuf_free(held[i]);
     memset(rte_pktmbuf_append(original, 60), 0xcc, 60);
-    assert(ps_recvfrom(udp_fd, received, sizeof(received), &source) == 13);
+    assert(core_recvfrom(&rt, udp_fd, received, sizeof(received), &source) == 13);
     uint16_t id = rt.next_ip_id;
-    assert(ps_sendto(udp_fd, received, 13, &source) == 13);
+    assert(core_sendto(&rt, udp_fd, received, 13, &source) == 13);
     assert(captured_mbuf != original);
     check_udp_output(payload, 13, id);
     rte_pktmbuf_free(original);
 
     struct ps_sockaddr unknown = { .ip_be = rte_cpu_to_be_32(RTE_IPV4(192u, 0, 2, 3)), .port = 1 };
     uint64_t before = rt.accepted_sends;
-    assert(ps_sendto(udp_fd, payload, 1, &unknown) == 1);
+    assert(core_sendto(&rt, udp_fd, payload, 1, &unknown) == 1);
     assert(rt.accepted_sends == before + 1);
     neighbour_fini(&rt);
     assert(rte_mempool_avail_count(rt.mbuf_pool) == 1023);
     unknown.ip_be = rte_cpu_to_be_32(RTE_IPV4(192u, 0, 2, 255));
     before = rt.graph.drop_reasons[DROP_INVALID_DESTINATION];
-    assert(ps_sendto(udp_fd, payload, 1, &unknown) == -EIO);
+    assert(core_sendto(&rt, udp_fd, payload, 1, &unknown) == -EIO);
     assert(rt.graph.drop_reasons[DROP_INVALID_DESTINATION] == before + 1);
-    assert(ps_sendto(-1, payload, 1, &address) == -EBADF);
-    assert(ps_sendto(udp_fd, payload, SIZE_MAX, &address) == -EMSGSIZE);
+    assert(core_sendto(&rt, -1, payload, 1, &address) == -EBADF);
+    assert(core_sendto(&rt, udp_fd, payload, SIZE_MAX, &address) == -EMSGSIZE);
     rt.ports[0].mtu = 64;
-    assert(ps_sendto(udp_fd, payload, 37, &address) == -EMSGSIZE);
+    assert(core_sendto(&rt, udp_fd, payload, 37, &address) == -EMSGSIZE);
     rt.ports[0].mtu = 1500;
     for (unsigned i = 0; i < 1023; i++) { held[i] = rte_pktmbuf_alloc(rt.mbuf_pool); assert(held[i]); }
     before = rt.graph.drop_reasons[DROP_MBUF_ALLOCATION_FAILED];
-    assert(ps_sendto(udp_fd, payload, 1, &address) == -ENOMEM);
+    assert(core_sendto(&rt, udp_fd, payload, 1, &address) == -ENOMEM);
     assert(rt.graph.drop_reasons[DROP_MBUF_ALLOCATION_FAILED] == before + 1);
     for (unsigned i = 0; i < 1023; i++) rte_pktmbuf_free(held[i]);
     for (unsigned i = 0; i < GRAPH_FRAME_POOL_SIZE; i++) rt.graph.slots[i].used = 1;
     before = rt.graph.drop_reasons[DROP_GRAPH_FULL];
-    assert(ps_sendto(udp_fd, payload, 1, &address) == -EIO);
+    assert(core_sendto(&rt, udp_fd, payload, 1, &address) == -EIO);
     assert(rt.graph.drop_reasons[DROP_GRAPH_FULL] == before + 1);
     for (unsigned i = 0; i < GRAPH_FRAME_POOL_SIZE; i++) rt.graph.slots[i].used = 0;
     tx_limit = 0;
     before = rt.graph.drop_reasons[DROP_TX_FAILED];
-    assert(ps_sendto(udp_fd, payload, 1, &address) == -EIO);
+    assert(core_sendto(&rt, udp_fd, payload, 1, &address) == -EIO);
     assert(rt.graph.drop_reasons[DROP_TX_FAILED] == before + 1);
     tx_limit = 2;
     struct node_frame burst = { .count = 4 };
@@ -332,14 +332,14 @@ static void udp_tests(void)
     assert(rt.graph.drop_reasons[DROP_TX_FAILED] == before + 2);
     tx_limit = UINT16_MAX;
     for (unsigned i = 0; i < 100; i++) {
-        assert(ps_sendto(udp_fd, payload, 13, &address) == 13);
+        assert(core_sendto(&rt, udp_fd, payload, 13, &address) == 13);
         assert(rte_mempool_avail_count(rt.mbuf_pool) == 1023);
     }
     for (unsigned i = 2; i < PS_SOCKET_MAX; i++) {
-        ps_fd_t fd = ps_socket(PS_AF_INET, PS_SOCK_DGRAM, 0);
-        assert(fd >= 0 && ps_bind(fd, &(struct ps_sockaddr){ .port = 9000 + i }) == 0);
+        ps_fd_t fd = core_socket(&rt, PS_AF_INET, PS_SOCK_DGRAM, 0);
+        assert(fd >= 0 && core_bind(&rt, fd, &(struct ps_sockaddr){ .port = 9000 + i }) == 0);
     }
-    assert(ps_socket(PS_AF_INET, PS_SOCK_DGRAM, 0) == -EMFILE);
+    assert(core_socket(&rt, PS_AF_INET, PS_SOCK_DGRAM, 0) == -EMFILE);
     assert(rte_mempool_avail_count(rt.mbuf_pool) == 1023);
     puts("UDP endpoints, checksums, output and ownership checks passed");
 }
@@ -499,10 +499,10 @@ static void multi_tests(void)
         submit_on(on_interface(udp_packet(payload, sizeof(payload), 9000, 1), p), p, DROP_NONE);
         struct ps_sockaddr source;
         uint8_t data[32];
-        assert(ps_recvfrom(udp_fd, data, sizeof(data), &source) == sizeof(payload));
+        assert(core_recvfrom(&rt, udp_fd, data, sizeof(data), &source) == sizeof(payload));
         assert(source.ip_be == peer_ip_on(p) && source.port == 50001);
         assert(!memcmp(data, payload, sizeof(payload)));
-        assert(ps_sendto(udp_fd, data, sizeof(payload), &source) == sizeof(payload));
+        assert(core_sendto(&rt, udp_fd, data, sizeof(payload), &source) == sizeof(payload));
         check_reply_on(p, rt.ports[p].ip_be);
         const struct rte_ipv4_hdr *ip = (const struct rte_ipv4_hdr *)(captured + 14);
         const struct rte_udp_hdr *udp = (const struct rte_udp_hdr *)(captured + 34);
@@ -511,7 +511,7 @@ static void multi_tests(void)
         assert(!memcmp(udp + 1, payload, sizeof(payload)));
         source.ip_be = rte_cpu_to_be_32(rte_be_to_cpu_32(peer_ip_on(p)) + 20);
         uint64_t before = rt.accepted_sends;
-        assert(ps_sendto(udp_fd, payload, sizeof(payload), &source) == sizeof(payload));
+        assert(core_sendto(&rt, udp_fd, payload, sizeof(payload), &source) == sizeof(payload));
         assert(rt.accepted_sends == before + 1);
         neighbour_fini(&rt);
         assert(rte_mempool_avail_count(rt.mbuf_pool) == 1023);
@@ -528,17 +528,17 @@ static void multi_tests(void)
     ip_checksum(asymmetric);
     submit_on(asymmetric, 0, DROP_MTU);
     struct ps_sockaddr limited = { .ip_be = peer_ip_on(1), .port = 1 };
-    assert(ps_sendto(udp_fd, payload, sizeof(payload), &limited) == -EMSGSIZE);
+    assert(core_sendto(&rt, udp_fd, payload, sizeof(payload), &limited) == -EMSGSIZE);
     limited.ip_be = peer_ip_on(0);
-    assert(ps_sendto(udp_fd, payload, sizeof(payload), &limited) == sizeof(payload));
+    assert(core_sendto(&rt, udp_fd, payload, sizeof(payload), &limited) == sizeof(payload));
     b->mtu = 1500;
     struct ps_sockaddr missing = { .ip_be = rte_cpu_to_be_32(RTE_IPV4(203u, 0, 113, 1)), .port = 1 };
     uint64_t before = rt.graph.drop_reasons[DROP_NO_ROUTE];
-    assert(ps_sendto(udp_fd, payload, sizeof(payload), &missing) == -EIO);
+    assert(core_sendto(&rt, udp_fd, payload, sizeof(payload), &missing) == -EIO);
     assert(rt.graph.drop_reasons[DROP_NO_ROUTE] == before + 1);
     assert(route_add(&rt.routes, missing.ip_be, 32, UINT16_MAX) == 0);
     before = rt.graph.drop_reasons[DROP_INVALID_EGRESS];
-    assert(ps_sendto(udp_fd, payload, sizeof(payload), &missing) == -EIO);
+    assert(core_sendto(&rt, udp_fd, payload, sizeof(payload), &missing) == -EIO);
     assert(rt.graph.drop_reasons[DROP_INVALID_EGRESS] == before + 1);
     assert(route_init_connected(&rt) == 0);
 

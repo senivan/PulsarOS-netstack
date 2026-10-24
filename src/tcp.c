@@ -10,7 +10,7 @@ static int before(uint32_t a, uint32_t b) { return (int32_t)(a - b) < 0; }
 static struct ps_socket_entry *connection(struct app_runtime *rt, const struct ps_sockaddr *local,
                                           const struct ps_sockaddr *remote)
 {
-    for (unsigned i = 0; i < PS_SOCKET_MAX; i++) {
+    for (unsigned i = 0; i < rt->sockets.capacity; i++) {
         struct ps_socket_entry *s = &rt->sockets.entries[i];
         if (s->allocated && s->type == PS_SOCK_STREAM && s->transport.tcp.state != TCP_CLOSED &&
             s->transport.tcp.state != TCP_LISTEN && s->local.ip_be == local->ip_be &&
@@ -22,7 +22,7 @@ static struct ps_socket_entry *connection(struct app_runtime *rt, const struct p
 
 static struct ps_socket_entry *listener(struct app_runtime *rt, const struct ps_sockaddr *local)
 {
-    for (unsigned i = 0; i < PS_SOCKET_MAX; i++) {
+    for (unsigned i = 0; i < rt->sockets.capacity; i++) {
         struct ps_socket_entry *s = &rt->sockets.entries[i];
         if (s->allocated && s->open && s->type == PS_SOCK_STREAM && s->transport.tcp.state == TCP_LISTEN &&
             s->local.port == local->port && (!s->local.ip_be || s->local.ip_be == local->ip_be)) return s;
@@ -153,7 +153,7 @@ int tcp_listen(struct ps_socket_entry *s, int backlog)
 ps_fd_t tcp_accept(struct app_runtime *rt, struct ps_socket_entry *s, struct ps_sockaddr *peer)
 {
     if (s->transport.tcp.state != TCP_LISTEN) return -EINVAL;
-    for (unsigned i = 0; i < PS_SOCKET_MAX; i++) {
+    for (unsigned i = 0; i < rt->sockets.capacity; i++) {
         struct ps_socket_entry *child = &rt->sockets.entries[i];
         struct tcp_connection *c = &child->transport.tcp;
         if (child->allocated && child->type == PS_SOCK_STREAM && c->parent == s->fd &&
@@ -173,7 +173,7 @@ void tcp_close(struct app_runtime *rt, struct ps_socket_entry *s, uint64_t now)
     struct tcp_connection *c = &s->transport.tcp;
     s->open = 0;
     if (c->state == TCP_LISTEN) {
-        for (unsigned i = 0; i < PS_SOCKET_MAX; i++) {
+        for (unsigned i = 0; i < rt->sockets.capacity; i++) {
             struct ps_socket_entry *child = &rt->sockets.entries[i];
             if (!child->allocated || child->type != PS_SOCK_STREAM || child->transport.tcp.parent != s->fd) continue;
             struct ps_sockaddr local = child->local, remote = child->remote;
@@ -242,7 +242,7 @@ static enum drop_reason passive_open(struct app_runtime *rt, struct ps_socket_en
                                       uint32_t seq, uint16_t window, uint16_t mss, uint64_t now)
 {
     unsigned pending = 0;
-    for (unsigned i = 0; i < PS_SOCKET_MAX; i++) {
+    for (unsigned i = 0; i < rt->sockets.capacity; i++) {
         struct ps_socket_entry *s = &rt->sockets.entries[i];
         if (s->allocated && s->type == PS_SOCK_STREAM && s->transport.tcp.parent == listen->fd) pending++;
     }
@@ -250,6 +250,7 @@ static enum drop_reason passive_open(struct app_runtime *rt, struct ps_socket_en
     struct ps_socket_entry *s = socket_allocate(rt, PS_SOCK_STREAM);
     if (!s) return DROP_TCP_BACKLOG_FULL;
     s->open = 0;
+    s->owner = listen->owner;
     s->local = *local;
     s->remote = *remote;
     initialize(s, now);

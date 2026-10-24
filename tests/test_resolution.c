@@ -59,7 +59,7 @@ static void reset(void)
 static void send_udp(uint32_t target, int accepted)
 {
     struct ps_sockaddr dst = { .ip_be = target, .port = 9001 };
-    assert(ps_sendto(udp_fd, "arp-test", 8, &dst) == (accepted ? 8 : -EIO));
+    assert(core_sendto(&rt, udp_fd, "arp-test", 8, &dst) == (accepted ? 8 : -EIO));
     assert(!rt.graph.q_count && !rt.active_output);
 }
 
@@ -355,8 +355,8 @@ int main(void)
     }
     assert(route_init_connected(&rt) == 0 && graph_init(&rt) == 0);
     assert(socket_subsystem_init(&rt) == 0);
-    udp_fd = ps_socket(PS_AF_INET, PS_SOCK_DGRAM, 0);
-    assert(udp_fd >= 0 && ps_bind(udp_fd, &(struct ps_sockaddr){ .port = 9000 }) == 0);
+    udp_fd = core_socket(&rt, PS_AF_INET, PS_SOCK_DGRAM, 0);
+    assert(udp_fd >= 0 && core_bind(&rt, udp_fd, &(struct ps_sockaddr){ .port = 9000 }) == 0);
     basic_resolution();
     retry_timeout();
     capacities();
