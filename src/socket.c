@@ -4,28 +4,25 @@
 #include <rte_cycles.h>
 #include "runtime.h"
 
-static struct app_runtime *active;
-
 int socket_subsystem_init(struct app_runtime *rt)
 {
     if (!rt) return -EINVAL;
-    if (active) return -EBUSY;
+    if (rt->sockets.capacity) return -EBUSY;
     memset(&rt->sockets, 0, sizeof(rt->sockets));
     rt->sockets.next_fd = 1;
     rt->sockets.next_port = 49152;
-    active = rt;
+    rt->sockets.capacity = PS_SOCKET_MAX;
     return 0;
 }
 
 void socket_subsystem_fini(struct app_runtime *rt)
 {
-    if (active == rt) active = NULL;
     memset(&rt->sockets, 0, sizeof(rt->sockets));
 }
 
 struct ps_socket_entry *socket_lookup(struct app_runtime *rt, ps_fd_t fd)
 {
-    for (unsigned i = 0; i < PS_SOCKET_MAX; i++) {
+    for (unsigned i = 0; i < rt->sockets.capacity; i++) {
         struct ps_socket_entry *s = &rt->sockets.entries[i];
         if (s->allocated && s->fd == fd) return s;
     }
@@ -34,7 +31,7 @@ struct ps_socket_entry *socket_lookup(struct app_runtime *rt, ps_fd_t fd)
 
 struct ps_socket_entry *socket_allocate(struct app_runtime *rt, int type)
 {
-    for (unsigned i = 0; i < PS_SOCKET_MAX; i++) {
+    for (unsigned i = 0; i < rt->sockets.capacity; i++) {
         struct ps_socket_entry *s = &rt->sockets.entries[i];
         if (s->allocated) continue;
         unsigned fd;
@@ -54,7 +51,7 @@ struct ps_socket_entry *socket_allocate(struct app_runtime *rt, int type)
 struct ps_socket_entry *socket_bound(struct app_runtime *rt, int type, uint32_t ip_be, uint16_t port)
 {
     if (!port) return NULL;
-    for (unsigned i = 0; i < PS_SOCKET_MAX; i++) {
+    for (unsigned i = 0; i < rt->sockets.capacity; i++) {
         struct ps_socket_entry *s = &rt->sockets.entries[i];
         if (s->allocated && s->type == type && s->local.port == port &&
             (!s->local.ip_be || s->local.ip_be == ip_be)) return s;
@@ -65,7 +62,7 @@ struct ps_socket_entry *socket_bound(struct app_runtime *rt, int type, uint32_t 
 static int port_available(struct app_runtime *rt, struct ps_socket_entry *s,
                            const struct ps_sockaddr *addr)
 {
-    for (unsigned i = 0; i < PS_SOCKET_MAX; i++) {
+    for (unsigned i = 0; i < rt->sockets.capacity; i++) {
         struct ps_socket_entry *other = &rt->sockets.entries[i];
         if (other != s && other->allocated && other->type == s->type &&
             other->local.port == addr->port && (!addr->ip_be || !other->local.ip_be ||
@@ -92,108 +89,108 @@ int socket_bind(struct app_runtime *rt, struct ps_socket_entry *s, const struct 
     return 0;
 }
 
-static struct ps_socket_entry *get(ps_fd_t fd)
+static struct ps_socket_entry *get(struct app_runtime *rt, ps_fd_t fd)
 {
-    struct ps_socket_entry *s = active ? socket_lookup(active, fd) : NULL;
+    struct ps_socket_entry *s = rt ? socket_lookup(rt, fd) : NULL;
     return s && s->open ? s : NULL;
 }
 
-ps_fd_t ps_socket(int domain, int type, int protocol)
+ps_fd_t core_socket(struct app_runtime *rt, int domain, int type, int protocol)
 {
-    if (!active) return -ENETDOWN;
-    if (active->active_output) return -EBUSY;
+    if (!rt || !rt->sockets.capacity) return -ENETDOWN;
+    if (rt->active_output) return -EBUSY;
     if (domain != PS_AF_INET) return -EAFNOSUPPORT;
     if (type != PS_SOCK_DGRAM && type != PS_SOCK_STREAM) return -EPROTOTYPE;
     if (protocol && protocol != (type == PS_SOCK_DGRAM ? 17 : 6)) return -EPROTONOSUPPORT;
-    struct ps_socket_entry *s = socket_allocate(active, type);
+    struct ps_socket_entry *s = socket_allocate(rt, type);
     return s ? s->fd : -EMFILE;
 }
 
-int ps_bind(ps_fd_t fd, const struct ps_sockaddr *addr)
+int core_bind(struct app_runtime *rt, ps_fd_t fd, const struct ps_sockaddr *addr)
 {
-    struct ps_socket_entry *s = get(fd);
+    struct ps_socket_entry *s = get(rt, fd);
     if (!s) return -EBADF;
-    return socket_bind(active, s, addr);
+    return socket_bind(rt, s, addr);
 }
 
-int ps_close(ps_fd_t fd)
+int core_close(struct app_runtime *rt, ps_fd_t fd)
 {
-    struct ps_socket_entry *s = get(fd);
+    struct ps_socket_entry *s = get(rt, fd);
     if (!s) return -EBADF;
-    if (s->type == PS_SOCK_STREAM) tcp_close(active, s, rte_get_timer_cycles());
+    if (s->type == PS_SOCK_STREAM) tcp_close(rt, s, rte_get_timer_cycles());
     else memset(s, 0, sizeof(*s));
     return 0;
 }
 
-ssize_t ps_sendto(ps_fd_t fd, const void *buf, size_t len, const struct ps_sockaddr *dst)
+ssize_t core_sendto(struct app_runtime *rt, ps_fd_t fd, const void *buf, size_t len, const struct ps_sockaddr *dst)
 {
-    struct ps_socket_entry *s = get(fd);
+    struct ps_socket_entry *s = get(rt, fd);
     if (!s) return -EBADF;
     if (s->type != PS_SOCK_DGRAM) return -EOPNOTSUPP;
     if (!dst || !dst->port || (!buf && len)) return -EINVAL;
-    if (active->active_output) return -EBUSY;
+    if (rt->active_output) return -EBUSY;
     if (!s->local.port) {
-        int rc = socket_bind(active, s, &(struct ps_sockaddr){0});
+        int rc = socket_bind(rt, s, &(struct ps_sockaddr){0});
         if (rc) return rc;
     }
-    return udp_send(active, s, buf, len, dst);
+    return udp_send(rt, s, buf, len, dst);
 }
 
-ssize_t ps_recvfrom(ps_fd_t fd, void *buf, size_t len, struct ps_sockaddr *src)
+ssize_t core_recvfrom(struct app_runtime *rt, ps_fd_t fd, void *buf, size_t len, struct ps_sockaddr *src)
 {
-    struct ps_socket_entry *s = get(fd);
+    struct ps_socket_entry *s = get(rt, fd);
     if (!s) return -EBADF;
     if (s->type != PS_SOCK_DGRAM) return -EOPNOTSUPP;
     if (!src || (!buf && len)) return -EINVAL;
     return udp_recv(s, buf, len, src);
 }
 
-int ps_connect(ps_fd_t fd, const struct ps_sockaddr *addr)
+int core_connect(struct app_runtime *rt, ps_fd_t fd, const struct ps_sockaddr *addr)
 {
-    struct ps_socket_entry *s = get(fd);
+    struct ps_socket_entry *s = get(rt, fd);
     if (!s) return -EBADF;
-    if (!addr || !addr->port || !ipv4_destination_valid(active, addr->ip_be)) return -EINVAL;
-    if (s->type == PS_SOCK_STREAM) return tcp_connect(active, s, addr);
+    if (!addr || !addr->port || !ipv4_destination_valid(rt, addr->ip_be)) return -EINVAL;
+    if (s->type == PS_SOCK_STREAM) return tcp_connect(rt, s, addr);
     if (!s->local.port) {
-        int rc = socket_bind(active, s, &(struct ps_sockaddr){0});
+        int rc = socket_bind(rt, s, &(struct ps_sockaddr){0});
         if (rc) return rc;
     }
     s->remote = *addr;
     return 0;
 }
 
-int ps_listen(ps_fd_t fd, int backlog)
+int core_listen(struct app_runtime *rt, ps_fd_t fd, int backlog)
 {
-    struct ps_socket_entry *s = get(fd);
+    struct ps_socket_entry *s = get(rt, fd);
     if (!s) return -EBADF;
     if (s->type != PS_SOCK_STREAM) return -EOPNOTSUPP;
-    return tcp_listen(s, backlog);
+    return tcp_listen(s, backlog > (int)rt->sockets.capacity - 1 ? (int)rt->sockets.capacity - 1 : backlog);
 }
 
-ps_fd_t ps_accept(ps_fd_t fd, struct ps_sockaddr *peer)
+ps_fd_t core_accept(struct app_runtime *rt, ps_fd_t fd, struct ps_sockaddr *peer)
 {
-    struct ps_socket_entry *s = get(fd);
+    struct ps_socket_entry *s = get(rt, fd);
     if (!s) return -EBADF;
     if (s->type != PS_SOCK_STREAM) return -EOPNOTSUPP;
-    return tcp_accept(active, s, peer);
+    return tcp_accept(rt, s, peer);
 }
 
-ssize_t ps_send(ps_fd_t fd, const void *buf, size_t len)
+ssize_t core_send(struct app_runtime *rt, ps_fd_t fd, const void *buf, size_t len)
 {
-    struct ps_socket_entry *s = get(fd);
+    struct ps_socket_entry *s = get(rt, fd);
     if (!s) return -EBADF;
     if (!buf && len) return -EINVAL;
-    if (s->type == PS_SOCK_STREAM) return tcp_send(active, s, buf, len);
+    if (s->type == PS_SOCK_STREAM) return tcp_send(rt, s, buf, len);
     if (!s->remote.port) return -ENOTCONN;
-    return ps_sendto(fd, buf, len, &s->remote);
+    return core_sendto(rt, fd, buf, len, &s->remote);
 }
 
-ssize_t ps_recv(ps_fd_t fd, void *buf, size_t len)
+ssize_t core_recv(struct app_runtime *rt, ps_fd_t fd, void *buf, size_t len)
 {
-    struct ps_socket_entry *s = get(fd);
+    struct ps_socket_entry *s = get(rt, fd);
     if (!s) return -EBADF;
     if (!buf && len) return -EINVAL;
-    if (s->type == PS_SOCK_STREAM) return tcp_recv(active, s, buf, len);
+    if (s->type == PS_SOCK_STREAM) return tcp_recv(rt, s, buf, len);
     struct ps_sockaddr peer;
-    return ps_recvfrom(fd, buf, len, &peer);
+    return core_recvfrom(rt, fd, buf, len, &peer);
 }

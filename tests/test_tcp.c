@@ -72,10 +72,11 @@ static void reset(void)
 
 static ps_fd_t listen_on(uint16_t port, int backlog)
 {
-    ps_fd_t fd = ps_socket(PS_AF_INET, PS_SOCK_STREAM, 0);
+    ps_fd_t fd = core_socket(&rt, PS_AF_INET, PS_SOCK_STREAM, 0);
     assert(fd > 0);
-    assert(ps_bind(fd, &(struct ps_sockaddr){.port = port}) == 0);
-    assert(ps_listen(fd, backlog) == 0);
+    assert(core_bind(&rt, fd, &(struct ps_sockaddr){.port = port}) == 0);
+    assert(core_listen(&rt, fd, backlog) == 0);
+    socket_lookup(&rt, fd)->owner = 1234;
     return fd;
 }
 
@@ -152,16 +153,16 @@ static ps_fd_t establish(ps_fd_t listener, uint16_t sport, uint32_t seq)
     unsigned index = count;
     input(sport, seq, 0, SYN, NULL, 0);
     struct ps_socket_entry *s = child(listener);
-    assert(s && s->transport.tcp.state == TCP_SYN_RECEIVED && !s->open);
+    assert(s && s->owner == socket_lookup(&rt, listener)->owner && s->transport.tcp.state == TCP_SYN_RECEIVED && !s->open);
     assert(count == index + 1 && segment(index)->tcp_flags == (SYN | ACK));
     uint32_t ack = s->transport.tcp.snd_nxt;
-    assert(s->transport.tcp.mss == 300 && ps_accept(listener, NULL) == -EAGAIN);
+    assert(s->transport.tcp.mss == 300 && core_accept(&rt, listener, NULL) == -EAGAIN);
     input(sport, seq + 1, ack, ACK, NULL, 0);
     assert(s->transport.tcp.state == TCP_ESTABLISHED);
     struct ps_sockaddr peer;
-    ps_fd_t fd = ps_accept(listener, &peer);
+    ps_fd_t fd = core_accept(&rt, listener, &peer);
     assert(fd == s->fd && fd != listener && peer.ip_be == PEER && peer.port == sport);
-    assert(ps_accept(listener, NULL) == -EAGAIN);
+    assert(core_accept(&rt, listener, NULL) == -EAGAIN);
     return fd;
 }
 
@@ -210,7 +211,7 @@ static void handshake_and_data(void)
     input(1234, UINT32_MAX - 1, 0, SYN, NULL, 0);
     assert(allocated() == 2 && count == 3);
     input(1234, UINT32_MAX, synack, ACK, NULL, 0);
-    ps_fd_t fd = ps_accept(listener, NULL);
+    ps_fd_t fd = core_accept(&rt, listener, NULL);
     assert(fd == s->fd && fd != listener);
     ps_fd_t fd2 = establish(listener, 1235, 1000);
     assert(fd2 != fd && allocated() == 3);
@@ -219,16 +220,16 @@ static void handshake_and_data(void)
     assert(s->transport.tcp.rcv_nxt == 4 && count == old + 1);
     assert(rte_be_to_cpu_32(segment(count - 1)->recv_ack) == 4);
     char data[16];
-    assert(ps_recv(fd2, data, sizeof(data)) == -EAGAIN);
-    assert(ps_recv(fd, data, 3) == 3 && !memcmp(data, "hel", 3));
-    assert(ps_recv(fd, data, sizeof(data)) == 2 && !memcmp(data, "lo", 2));
-    assert(ps_recv(fd, data, sizeof(data)) == -EAGAIN);
+    assert(core_recv(&rt, fd2, data, sizeof(data)) == -EAGAIN);
+    assert(core_recv(&rt, fd, data, 3) == 3 && !memcmp(data, "hel", 3));
+    assert(core_recv(&rt, fd, data, sizeof(data)) == 2 && !memcmp(data, "lo", 2));
+    assert(core_recv(&rt, fd, data, sizeof(data)) == -EAGAIN);
     inject(packet(PEER, 1234, 9000, UINT32_MAX, synack, ACK, "hello", 5, 8192, 0), DROP_TCP_OUT_OF_ORDER);
     inject(packet(PEER, 1234, 9000, 8, synack, ACK, "bad", 3, 8192, 0), DROP_TCP_OUT_OF_ORDER);
     assert(s->transport.tcp.rx_len == 0 && s->transport.tcp.rcv_nxt == 4);
     uint8_t payload[1000];
     memset(payload, 0xa5, sizeof(payload));
-    assert(ps_send(fd, payload, sizeof(payload)) == sizeof(payload));
+    assert(core_send(&rt, fd, payload, sizeof(payload)) == sizeof(payload));
     assert(s->transport.tcp.flight_len == 300 && s->transport.tcp.tx_len == 1000);
     old = count;
     deadline = s->transport.tcp.deadline;
@@ -244,9 +245,9 @@ static void handshake_and_data(void)
     assert(s->transport.tcp.flight_len == 300 && s->transport.tcp.tx_len == 700);
     while (s->transport.tcp.tx_len) input(1234, 4, s->transport.tcp.snd_nxt, ACK, NULL, 0);
     assert(s->transport.tcp.snd_una == synack + 1000 && !s->transport.tcp.flight_flags);
-    assert(ps_close(listener) == 0 && allocated() == 2);
-    assert(ps_close(fd2) == 0 && ps_close(fd) == 0);
-    assert(ps_send(fd, "x", 1) == -EBADF);
+    assert(core_close(&rt, listener) == 0 && allocated() == 2);
+    assert(core_close(&rt, fd2) == 0 && core_close(&rt, fd) == 0);
+    assert(core_send(&rt, fd, "x", 1) == -EBADF);
     tcp_tick(&rt, UINT64_MAX / 2);
     for (unsigned i = 0; i <= TCP_MAX_RETRIES; i++) tcp_tick(&rt, s->transport.tcp.deadline);
     reset();
@@ -262,9 +263,9 @@ static void close_and_timeouts(void)
     input(1234, 11, ack, FIN | ACK, NULL, 0);
     assert(s->transport.tcp.state == TCP_CLOSE_WAIT && s->transport.tcp.rcv_nxt == 12);
     char data[4];
-    assert(ps_recv(fd, data, sizeof(data)) == 0);
-    assert(ps_send(fd, "end", 3) == 3);
-    assert(ps_close(fd) == 0 && !s->open && s->transport.tcp.state == TCP_CLOSE_WAIT);
+    assert(core_recv(&rt, fd, data, sizeof(data)) == 0);
+    assert(core_send(&rt, fd, "end", 3) == 3);
+    assert(core_close(&rt, fd) == 0 && !s->open && s->transport.tcp.state == TCP_CLOSE_WAIT);
     input(1234, 12, ack + 3, ACK, NULL, 0);
     assert(s->transport.tcp.state == TCP_LAST_ACK && segment(count - 1)->tcp_flags == (FIN | ACK));
     tcp_tick(&rt, s->transport.tcp.deadline);
@@ -275,7 +276,7 @@ static void close_and_timeouts(void)
     fd = establish(listener, 1235, 20);
     s = socket_lookup(&rt, fd);
     ack = s->transport.tcp.snd_nxt;
-    assert(ps_close(fd) == 0 && s->transport.tcp.state == TCP_FIN_WAIT_1);
+    assert(core_close(&rt, fd) == 0 && s->transport.tcp.state == TCP_FIN_WAIT_1);
     input(1235, 21, ack + 1, ACK, NULL, 0);
     assert(s->transport.tcp.state == TCP_FIN_WAIT_2);
     input(1235, 21, ack + 1, FIN | ACK, NULL, 0);
@@ -291,7 +292,7 @@ static void close_and_timeouts(void)
     fd = establish(listener, 1236, 30);
     s = socket_lookup(&rt, fd);
     ack = s->transport.tcp.snd_nxt;
-    assert(ps_close(fd) == 0);
+    assert(core_close(&rt, fd) == 0);
     input(1236, 31, ack, FIN | ACK, NULL, 0);
     assert(s->transport.tcp.state == TCP_FIN_WAIT_1 && s->transport.tcp.peer_fin);
     input(1236, 32, ack + 1, ACK, NULL, 0);
@@ -302,23 +303,23 @@ static void close_and_timeouts(void)
     s = child(listener);
     for (unsigned i = 0; i <= TCP_MAX_RETRIES; i++) tcp_tick(&rt, s->transport.tcp.deadline);
     assert(!child(listener) && rt.tcp_stats.timeouts == 1);
-    assert(ps_close(listener) == 0 && !allocated());
+    assert(core_close(&rt, listener) == 0 && !allocated());
     assert(rte_mempool_avail_count(rt.mbuf_pool) == POOL_SIZE);
 }
 
 static void active_and_windows(void)
 {
     reset();
-    ps_fd_t fd = ps_socket(PS_AF_INET, PS_SOCK_STREAM, 0);
+    ps_fd_t fd = core_socket(&rt, PS_AF_INET, PS_SOCK_STREAM, 0);
     struct ps_sockaddr dst = { .ip_be = PEER, .port = 1234 };
-    assert(ps_connect(fd, &dst) == -EINPROGRESS && ps_connect(fd, &dst) == -EALREADY);
+    assert(core_connect(&rt, fd, &dst) == -EINPROGRESS && core_connect(&rt, fd, &dst) == -EALREADY);
     struct ps_socket_entry *s = socket_lookup(&rt, fd);
     uint32_t ack = s->transport.tcp.snd_nxt;
     uint16_t port = s->local.port;
     assert(segment(0)->tcp_flags == SYN && s->transport.tcp.state == TCP_SYN_SENT);
     inject(packet(PEER, 1234, port, 100, ack, SYN | ACK, NULL, 0, 0, 1), DROP_NONE);
-    assert(ps_connect(fd, &dst) == -EISCONN && s->transport.tcp.state == TCP_ESTABLISHED);
-    assert(ps_send(fd, "hello", 5) == 5 && !s->transport.tcp.flight_flags);
+    assert(core_connect(&rt, fd, &dst) == -EISCONN && s->transport.tcp.state == TCP_ESTABLISHED);
+    assert(core_send(&rt, fd, "hello", 5) == 5 && !s->transport.tcp.flight_flags);
     unsigned old = count;
     tcp_tick(&rt, s->transport.tcp.deadline);
     assert(count == old + 1 && rte_be_to_cpu_32(segment(count - 1)->sent_seq) == ack - 1);
@@ -329,14 +330,14 @@ static void active_and_windows(void)
     inject(packet(PEER, 1234, port, 101, ack + 5, ACK, NULL, 0, 100, 0), DROP_NONE);
     assert(!s->transport.tcp.tx_len);
     inject(packet(PEER, 1234, port, 101, ack + 5, RST | ACK, NULL, 0, 100, 0), DROP_NONE);
-    assert(ps_recv(fd, &old, 1) == -ECONNRESET && ps_send(fd, "x", 1) == -ECONNRESET);
-    assert(ps_close(fd) == 0 && !allocated());
-    fd = ps_socket(PS_AF_INET, PS_SOCK_STREAM, 0);
-    assert(ps_connect(fd, &dst) == -EINPROGRESS);
+    assert(core_recv(&rt, fd, &old, 1) == -ECONNRESET && core_send(&rt, fd, "x", 1) == -ECONNRESET);
+    assert(core_close(&rt, fd) == 0 && !allocated());
+    fd = core_socket(&rt, PS_AF_INET, PS_SOCK_STREAM, 0);
+    assert(core_connect(&rt, fd, &dst) == -EINPROGRESS);
     s = socket_lookup(&rt, fd);
     inject(packet(PEER, 1234, s->local.port, 0, s->transport.tcp.snd_nxt, RST | ACK, NULL, 0, 100, 0), DROP_NONE);
-    assert(ps_send(fd, "x", 1) == -ECONNREFUSED);
-    assert(ps_close(fd) == 0);
+    assert(core_send(&rt, fd, "x", 1) == -ECONNREFUSED);
+    assert(core_close(&rt, fd) == 0);
     reset();
 }
 
@@ -346,7 +347,7 @@ static void capacity_and_failure_tests(void)
     ps_fd_t listener = listen_on(9000, 1);
     input(1234, 10, 0, SYN, NULL, 0);
     inject(packet(PEER, 1235, 9000, 20, 0, SYN, NULL, 0, 100, 0), DROP_TCP_BACKLOG_FULL);
-    assert(allocated() == 2 && ps_close(listener) == 0 && !allocated());
+    assert(allocated() == 2 && core_close(&rt, listener) == 0 && !allocated());
 
     reset();
     listener = listen_on(9000, 2);
@@ -365,28 +366,28 @@ static void capacity_and_failure_tests(void)
     uint32_t seq = s->transport.tcp.rcv_nxt;
     input(1234, seq, ack, FIN | ACK, NULL, 0);
     assert(!s->transport.tcp.peer_fin && s->transport.tcp.rcv_nxt == seq);
-    assert(ps_recv(fd, bytes, 1) == 1 && rte_be_to_cpu_16(segment(count - 1)->rx_win) == 1);
+    assert(core_recv(&rt, fd, bytes, 1) == 1 && rte_be_to_cpu_16(segment(count - 1)->rx_win) == 1);
     input(1234, seq, ack, FIN | ACK, NULL, 0);
     assert(s->transport.tcp.peer_fin && s->transport.tcp.rcv_nxt == seq + 1);
-    assert(ps_recv(fd, bytes, sizeof(bytes)) == TCP_BUFFER_SIZE - 1);
-    assert(ps_recv(fd, bytes, 1) == 0);
-    assert(ps_close(fd) == 0);
+    assert(core_recv(&rt, fd, bytes, sizeof(bytes)) == TCP_BUFFER_SIZE - 1);
+    assert(core_recv(&rt, fd, bytes, 1) == 0);
+    assert(core_close(&rt, fd) == 0);
     input(1234, seq + 1, ack + 1, ACK, NULL, 0);
     assert(allocated() == 1);
 
     fd = establish(listener, 1235, 100);
     s = socket_lookup(&rt, fd);
     ack = s->transport.tcp.snd_nxt;
-    assert(ps_send(fd, bytes, sizeof(bytes)) == sizeof(bytes));
-    assert(ps_send(fd, bytes, 1) == -EAGAIN);
+    assert(core_send(&rt, fd, bytes, sizeof(bytes)) == sizeof(bytes));
+    assert(core_send(&rt, fd, bytes, 1) == -EAGAIN);
     inject(packet(PEER, 1235, 9000, 101, s->transport.tcp.snd_nxt + 1, ACK, NULL, 0, 100, 0), DROP_TCP_INVALID_STATE);
     assert(s->transport.tcp.tx_len == TCP_BUFFER_SIZE && s->transport.tcp.snd_una == ack);
     inject(packet(PEER, 1235, 9000, 102, 0, RST, NULL, 0, 100, 0), DROP_TCP_OUT_OF_ORDER);
     assert(!s->error && s->transport.tcp.state == TCP_ESTABLISHED);
-    assert(ps_close(fd) == 0);
+    assert(core_close(&rt, fd) == 0);
     for (unsigned i = 0; i <= TCP_MAX_RETRIES; i++) tcp_tick(&rt, s->transport.tcp.deadline);
     assert(!socket_lookup(&rt, fd) && rt.tcp_stats.timeouts == 1);
-    assert(ps_close(listener) == 0 && !allocated());
+    assert(core_close(&rt, listener) == 0 && !allocated());
 
     reset();
     listener = listen_on(9000, 1);
@@ -394,40 +395,40 @@ static void capacity_and_failure_tests(void)
     s = socket_lookup(&rt, fd);
     ack = s->transport.tcp.snd_nxt;
     rt.ports[0].mtu = 100;
-    assert(ps_send(fd, bytes, 200) == 200 && s->transport.tcp.flight_len == 60);
+    assert(core_send(&rt, fd, bytes, 200) == 200 && s->transport.tcp.flight_len == 60);
     assert(rte_be_to_cpu_16(((const struct rte_ipv4_hdr *)(wire[count - 1].data + 14))->total_length) == 100);
     while (s->transport.tcp.tx_len) input(1234, 11, s->transport.tcp.snd_nxt, ACK, NULL, 0);
     struct rte_mbuf *held[POOL_SIZE];
     for (unsigned i = 0; i < POOL_SIZE; i++) { held[i] = rte_pktmbuf_alloc(rt.mbuf_pool); assert(held[i]); }
     unsigned old = count;
-    assert(ps_send(fd, bytes, 10) == 10 && count == old && rt.tcp_stats.output_failed == 1);
+    assert(core_send(&rt, fd, bytes, 10) == 10 && count == old && rt.tcp_stats.output_failed == 1);
     for (unsigned i = 0; i < POOL_SIZE; i++) rte_pktmbuf_free(held[i]);
     tcp_tick(&rt, s->transport.tcp.deadline);
     assert(count == old + 1 && rte_be_to_cpu_32(segment(count - 1)->sent_seq) == ack + 200);
     input(1234, 11, s->transport.tcp.snd_nxt, ACK, NULL, 0);
     for (unsigned i = 0; i < GRAPH_FRAME_POOL_SIZE; i++) rt.graph.slots[i].used = 1;
     old = count;
-    assert(ps_send(fd, bytes, 10) == 10 && count == old && rt.tcp_stats.output_failed == 2);
+    assert(core_send(&rt, fd, bytes, 10) == 10 && count == old && rt.tcp_stats.output_failed == 2);
     assert(rt.graph.drop_reasons[DROP_GRAPH_FULL] == 1);
     for (unsigned i = 0; i < GRAPH_FRAME_POOL_SIZE; i++) rt.graph.slots[i].used = 0;
     tcp_tick(&rt, s->transport.tcp.deadline);
     assert(count == old + 1);
     input(1234, 11, s->transport.tcp.snd_nxt, ACK, NULL, 0);
     tx_limit = 0;
-    assert(ps_send(fd, bytes, 10) == 10 && rt.graph.drop_reasons[DROP_TX_FAILED] == 1);
+    assert(core_send(&rt, fd, bytes, 10) == 10 && rt.graph.drop_reasons[DROP_TX_FAILED] == 1);
     tx_limit = UINT16_MAX;
     tcp_tick(&rt, s->transport.tcp.deadline);
     input(1234, 11, s->transport.tcp.snd_nxt, ACK, NULL, 0);
     rt.routes.count = 0;
-    assert(ps_send(fd, bytes, 1) == -ENETUNREACH);
-    assert(ps_close(fd) == 0);
+    assert(core_send(&rt, fd, bytes, 1) == -ENETUNREACH);
+    assert(core_close(&rt, fd) == 0);
 
     reset();
     memset(&rt.neighbours, 0, sizeof(rt.neighbours));
-    fd = ps_socket(PS_AF_INET, PS_SOCK_STREAM, 0);
-    assert(ps_connect(fd, &(struct ps_sockaddr){ .ip_be = PEER, .port = 1234 }) == -EINPROGRESS);
+    fd = core_socket(&rt, PS_AF_INET, PS_SOCK_STREAM, 0);
+    assert(core_connect(&rt, fd, &(struct ps_sockaddr){ .ip_be = PEER, .port = 1234 }) == -EINPROGRESS);
     assert(rte_mempool_avail_count(rt.mbuf_pool) == POOL_SIZE - 1);
-    assert(ps_close(fd) == 0 && !allocated());
+    assert(core_close(&rt, fd) == 0 && !allocated());
     assert(rte_mempool_avail_count(rt.mbuf_pool) == POOL_SIZE && rt.graph.drop_reasons[DROP_NEIGHBOUR_CANCELLED] == 1);
     reset();
     listener = listen_on(9000, 1);
@@ -436,7 +437,7 @@ static void capacity_and_failure_tests(void)
     const struct rte_ipv4_hdr *ip = (const struct rte_ipv4_hdr *)(wire[0].data + 14);
     assert(ip->dst_addr == OTHER && segment(0)->tcp_flags == (SYN | ACK));
     assert(rte_is_same_ether_addr(&((const struct rte_ether_hdr *)wire[0].data)->dst_addr, &peer_mac));
-    assert(ps_close(listener) == 0 && !allocated());
+    assert(core_close(&rt, listener) == 0 && !allocated());
     reset();
 }
 
@@ -447,43 +448,43 @@ static void lifetime_tests(void)
     ps_fd_t fd = establish(listener, 1234, 10);
     struct ps_socket_entry *s = socket_lookup(&rt, fd);
     uint32_t ack = s->transport.tcp.snd_nxt;
-    assert(ps_close(listener) == 0 && allocated() == 1);
-    assert(ps_close(fd) == 0);
+    assert(core_close(&rt, listener) == 0 && allocated() == 1);
+    assert(core_close(&rt, fd) == 0);
     input(1234, 11, ack + 1, FIN | ACK, NULL, 0);
     assert(s->transport.tcp.state == TCP_TIME_WAIT);
-    ps_fd_t next = ps_socket(PS_AF_INET, PS_SOCK_STREAM, 0);
-    assert(ps_bind(next, &(struct ps_sockaddr){ .port = 9000 }) == -EADDRINUSE);
+    ps_fd_t next = core_socket(&rt, PS_AF_INET, PS_SOCK_STREAM, 0);
+    assert(core_bind(&rt, next, &(struct ps_sockaddr){ .port = 9000 }) == -EADDRINUSE);
     tcp_tick(&rt, s->transport.tcp.expires);
     assert(!socket_lookup(&rt, fd));
-    assert(ps_bind(next, &(struct ps_sockaddr){ .port = 9000 }) == 0);
-    assert(ps_listen(next, 1) == 0);
+    assert(core_bind(&rt, next, &(struct ps_sockaddr){ .port = 9000 }) == 0);
+    assert(core_listen(&rt, next, 1) == 0);
     fd = establish(next, 1235, 20);
     s = socket_lookup(&rt, fd);
     ack = s->transport.tcp.snd_nxt;
-    assert(ps_close(fd) == 0);
+    assert(core_close(&rt, fd) == 0);
     input(1235, 21, ack + 1, ACK, NULL, 0);
     assert(s->transport.tcp.state == TCP_FIN_WAIT_2);
     tcp_tick(&rt, s->transport.tcp.expires);
-    assert(!socket_lookup(&rt, fd) && ps_close(next) == 0 && !allocated());
-    fd = ps_socket(PS_AF_INET, PS_SOCK_STREAM, 0);
-    assert(ps_connect(fd, &(struct ps_sockaddr){ .ip_be = PEER, .port = 1234 }) == -EINPROGRESS);
+    assert(!socket_lookup(&rt, fd) && core_close(&rt, next) == 0 && !allocated());
+    fd = core_socket(&rt, PS_AF_INET, PS_SOCK_STREAM, 0);
+    assert(core_connect(&rt, fd, &(struct ps_sockaddr){ .ip_be = PEER, .port = 1234 }) == -EINPROGRESS);
     s = socket_lookup(&rt, fd);
     for (unsigned i = 0; i <= TCP_MAX_RETRIES; i++) tcp_tick(&rt, s->transport.tcp.deadline);
     char byte;
-    assert(ps_recv(fd, &byte, 1) == -ETIMEDOUT);
-    assert(ps_close(fd) == 0 && !allocated());
+    assert(core_recv(&rt, fd, &byte, 1) == -ETIMEDOUT);
+    assert(core_close(&rt, fd) == 0 && !allocated());
     reset();
     listener = listen_on(9000, 1);
     fd = establish(listener, 1234, 10);
     input(1234, 11, 0, RST, NULL, 0);
-    assert(ps_recv(fd, &byte, 1) == -ECONNRESET);
+    assert(core_recv(&rt, fd, &byte, 1) == -ECONNRESET);
     memset(&rt.neighbours, 0, sizeof(rt.neighbours));
     struct node_frame frame = { .count = 1 };
     frame.pkts[0] = packet(PEER, 1234, 9000, 20, 0, SYN, NULL, 0, 100, 0);
     frame.ctxs[0].ingress_port_id = rt.ports[0].port_id;
     assert(graph_submit(&rt, NODE_ETH_INPUT, &frame) == 0);
     assert(child(listener) && rte_mempool_avail_count(rt.mbuf_pool) == POOL_SIZE - 1);
-    assert(ps_close(fd) == 0 && rte_mempool_avail_count(rt.mbuf_pool) == POOL_SIZE - 1);
+    assert(core_close(&rt, fd) == 0 && rte_mempool_avail_count(rt.mbuf_pool) == POOL_SIZE - 1);
     reset();
 }
 
