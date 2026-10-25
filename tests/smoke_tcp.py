@@ -10,6 +10,7 @@ import subprocess
 import tempfile
 import time
 from pathlib import Path
+from daemon_helpers import Daemon
 
 from scapy.all import Ether, IP, TCP, wrpcap
 from scapy.utils import checksum
@@ -65,6 +66,7 @@ def main():
     parser.add_argument('--artifacts', type=Path)
     args = parser.parse_args()
     packets, processes, links, sockets = [], [], [], []
+    daemon = None
     lost = dict(synack=0, data=0, fin=0)
     with tempfile.TemporaryDirectory(prefix='netstack-tcp-') as tmp:
         artifacts = args.artifacts or Path(tmp)
@@ -117,7 +119,9 @@ def main():
                     sockets[1 if sock is sockets[0] else 0].send(raw)
 
             with (artifacts / 'server.log').open('w+') as log:
-                server = subprocess.Popen([args.binary, str(config)], stdout=log, stderr=log)
+                daemon = Daemon(args.binary, config, log)
+                server = daemon.process
+                echo = daemon.client(args.binary)
                 processes.append(server)
                 deadline = time.monotonic() + 60
                 while 'entering host input loop' not in (artifacts / 'server.log').read_text():
@@ -133,11 +137,7 @@ def main():
                 for _ in range(10):
                     pump(deadline, True)
                 assert all(lost.values()), lost
-                server.send_signal(signal.SIGTERM)
-                assert server.wait(timeout=5) == 0, (artifacts / 'server.log').read_text()
-                output = (artifacts / 'server.log').read_text()
-                assert 'timeouts=0' in output and 'established=3' in output, output
-                assert 'retransmissions=0' not in output, output
+                daemon.stop_client(echo)
 
             with (artifacts / 'linux-server.log').open('w+') as linux_log:
                 linux = subprocess.Popen(['python3', '-c', SERVER], stdout=linux_log, stderr=linux_log)
@@ -147,15 +147,23 @@ def main():
                     assert linux.poll() is None
                     pump(deadline, False)
                 with (artifacts / 'initiator.log').open('w+') as initiator_log:
-                    initiator = subprocess.Popen([args.initiator, str(config), '192.0.2.1'],
+                    initiator = subprocess.Popen([args.initiator, daemon.path, '192.0.2.1'],
                                                  stdout=initiator_log, stderr=initiator_log)
                     processes.append(initiator)
                     while initiator.poll() is None:
                         pump(deadline, False)
                     assert initiator.returncode == 0, (artifacts / 'initiator.log').read_text()
-                assert linux.wait(timeout=5) == 0, (artifacts / 'linux-server.log').read_text()
+                while linux.poll() is None:
+                    pump(deadline, False)
+                assert linux.returncode == 0, (artifacts / 'linux-server.log').read_text()
+            daemon.stop()
+            output = (artifacts / 'server.log').read_text()
+            assert 'timeouts=0' in output and 'established=4' in output, output
+            assert 'retransmissions=0' not in output, output
             print('TCP namespace smoke passed: Linux echo, active open, RST, MTU 600, SYN+ACK/data/FIN loss')
         finally:
+            if daemon is not None:
+                daemon.stop(check=False)
             for process in processes:
                 if process.poll() is None:
                     process.kill()
