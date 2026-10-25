@@ -8,13 +8,16 @@
 #include "socket.h"
 #include "route.h"
 #include "icmp.h"
+#include "net_config.h"
 
 struct port_state {
     uint16_t id, port_id, mtu;
     uint32_t ip_be;
     uint8_t prefix_len, configured, started;
     struct rte_ether_addr mac;
-    uint64_t rx_packets, tx_packets, tx_drops;
+    uint64_t rx_packets, tx_packets, tx_drops, rx_bytes, tx_bytes;
+    char name[64];
+    uint8_t admin_down;
 };
 
 struct app_runtime {
@@ -22,6 +25,8 @@ struct app_runtime {
     struct port_state ports[NETIF_MAX];
     uint16_t port_count;
     struct route_table routes;
+    struct net_config *network;
+    struct acl_counters acl_stats;
     struct dp_graph graph;
     struct neighbour_table neighbours;
     struct neighbour_pending pending_neighbours;
