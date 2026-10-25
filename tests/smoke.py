@@ -9,6 +9,7 @@ import sys
 import tempfile
 import time
 from pathlib import Path
+from daemon_helpers import Daemon
 
 from scapy.all import ARP, ICMP, IP, UDP, Ether, Raw
 
@@ -29,10 +30,11 @@ def receive(sock, predicate, timeout=2):
 
 
 def main():
-    binary = sys.argv[1] if len(sys.argv) > 1 else "/build/netstack-dp"
+    binary = sys.argv[1] if len(sys.argv) > 1 else "/build/pulsarosd"
     test_udp = "--udp" in sys.argv
     host_mac, peer_mac = "02:00:00:00:00:02", "02:00:00:00:00:01"
     process = None
+    daemon = None
     ip("link", "add", "ns-host", "type", "veth", "peer", "name", "ns-peer")
     try:
         for name, mac in (("ns-host", host_mac), ("ns-peer", peer_mac)):
@@ -47,7 +49,10 @@ def main():
             with log_path.open("w+") as log, socket.socket(socket.AF_PACKET, socket.SOCK_RAW,
                                                          socket.htons(3)) as sock:
                 sock.bind(("ns-peer", 0))
-                process = subprocess.Popen([binary, str(config)], stdout=log, stderr=log)
+                daemon = Daemon(binary, config, log)
+                process = daemon.process
+                if test_udp:
+                    daemon.client(binary)
                 deadline = time.monotonic() + 15
                 while "entering host input loop" not in log_path.read_text():
                     if process.poll() is not None or time.monotonic() > deadline:
@@ -136,8 +141,7 @@ def main():
                     else:
                         raise AssertionError("Linux UDP socket did not receive Port Unreachable")
                 sent += 1
-                process.send_signal(signal.SIGTERM)
-                assert process.wait(timeout=5) == 0
+                daemon.stop()
                 output = log_path.read_text()
                 assert "invalid_ipv4" in output and f"transmitted packets: {sent}" in output, output
                 assert "udp_unbound_port" in output and "ICMP errors: generated=1" in output, output
@@ -147,6 +151,8 @@ def main():
                 if test_udp:
                     print("native UDP echo, empty datagram and software checksums passed")
     finally:
+        if daemon is not None:
+            daemon.stop(check=False)
         if process is not None and process.poll() is None:
             process.kill()
             process.wait()

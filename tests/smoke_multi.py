@@ -11,6 +11,7 @@ import tempfile
 import time
 from contextlib import ExitStack
 from pathlib import Path
+from daemon_helpers import Daemon
 
 from scapy.all import ARP, ICMP, IP, UDP, Ether, Raw
 from smoke import ip, receive
@@ -33,6 +34,7 @@ def main():
     peer_macs = ["02:00:00:00:00:01", "02:00:00:00:01:01"]
     created = []
     process = None
+    daemon = None
     try:
         with ExitStack() as resources, tempfile.TemporaryDirectory(prefix="netstack-multi-") as tmp:
             sockets = []
@@ -51,7 +53,9 @@ def main():
                 f"[interface]\npmd=af_packet\ndevice=ms-host{p}\nip={local_ips[p]}/24\n" for p in range(2)))
             log_path = Path(tmp) / "stack.log"
             log = resources.enter_context(log_path.open("w+"))
-            process = subprocess.Popen([binary, str(config)], stdout=log, stderr=log)
+            daemon = Daemon(binary, config, log)
+            process = daemon.process
+            daemon.client(binary)
             deadline = time.monotonic() + 15
             while "entering host input loop" not in log_path.read_text():
                 if process.poll() is not None or time.monotonic() > deadline:
@@ -109,8 +113,7 @@ def main():
                     rebuilt = IP(bytes(rebuilt))
                     assert rebuilt.chksum == reply[IP].chksum
                     assert rebuilt[UDP].chksum == reply[UDP].chksum != 0
-            process.send_signal(signal.SIGTERM)
-            assert process.wait(timeout=5) == 0
+            daemon.stop()
             output = log_path.read_text()
             assert re.search(r"^\s+forwarding_disabled\s+4$", output, re.MULTILINE), output
             assert "transmitted packets: 14" in output, output
@@ -119,6 +122,8 @@ def main():
             print(output)
             print("two-interface ARP, ICMP, UDP, route selection and forwarding rejection passed")
     finally:
+        if daemon is not None:
+            daemon.stop(check=False)
         if process is not None and process.poll() is None:
             process.kill()
             process.wait()

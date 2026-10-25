@@ -9,6 +9,7 @@ import tempfile
 import time
 from contextlib import ExitStack
 from pathlib import Path
+from daemon_helpers import Daemon
 
 from scapy.all import ARP, IP, UDP, Ether, Raw
 from smoke import ip
@@ -19,6 +20,7 @@ def main():
     local_macs = ["02:00:00:00:00:02", "02:00:00:00:01:02"]
     peer_mac, peer_ip = "02:00:00:00:01:01", "198.51.100.1"
     process = None
+    daemon = None
     links = []
     try:
         with ExitStack() as resources, tempfile.TemporaryDirectory(prefix="netstack-arp-") as tmp:
@@ -39,7 +41,9 @@ def main():
                 f"[interface]\npmd=af_packet\ndevice=ar-host{p}\nip={local_ips[p]}/24\n" for p in range(2)))
             log_path = Path(tmp) / "stack.log"
             log = resources.enter_context(log_path.open("w+"))
-            process = subprocess.Popen([sys.argv[1], str(config), peer_ip], stdout=log, stderr=log)
+            daemon = Daemon(sys.argv[1], config, log)
+            client_log = resources.enter_context((Path(tmp) / "initiator.log").open("w+"))
+            process = subprocess.Popen([sys.argv[1], daemon.path, peer_ip], stdout=client_log, stderr=client_log)
             sequence = []
             deadline = time.monotonic() + 15
             received = False
@@ -88,11 +92,14 @@ def main():
                         raise AssertionError(packet.summary())
             assert received, log_path.read_text()
             assert process.wait(timeout=5) == 0, log_path.read_text()
+            daemon.stop()
             output = log_path.read_text()
             assert "transmitted packets: 2" in output, output
             print(output)
             print("silent peer: " + " -> ".join(sequence) + "; active ARP smoke passed")
     finally:
+        if daemon is not None:
+            daemon.stop(check=False)
         if process is not None and process.poll() is None:
             process.kill()
             process.wait()

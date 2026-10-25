@@ -237,7 +237,7 @@ def scenario(binary, name, directory):
             config.write_text(f"lcore={min(os.sched_getaffinity(0))}\nno_huge=1\nipv4_forwarding={int(enabled)}\n" + "".join(
                 f"[interface]\npmd=af_packet\ndevice=fw{p}\nip={ip}/24\n" for p, ip in enumerate((P_A, P_B))) + route)
             log = resources.enter_context(log_path.open("w"))
-            stack = subprocess.Popen([binary, str(config)], stdout=log, stderr=log)
+            stack = subprocess.Popen([binary, str(config), "--socket", str(directory / "daemon.sock")], stdout=log, stderr=log)
             resources.callback(stop, stack)
             wait_ready(stack, log_path, "entering host input loop")
 

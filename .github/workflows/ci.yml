@@ -21,16 +21,25 @@ jobs:
         run: |
           cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug
           cmake --build build -j2
-          ctest --test-dir build --output-on-failure
+          ctest --test-dir build --output-on-failure --output-junit "$PWD/build/unit-tests.xml"
+      - name: DPDK-free client build
+        run: |
+          cmake -S . -B build-client -DPULSAROS_BUILD_DAEMON=OFF
+          cmake --build build-client -j2
+          ctest --test-dir build-client --output-on-failure
+          python3 -c 'import subprocess; text = subprocess.check_output(["ldd", "build/libpulsaros.so"], text=True); assert "librte" not in text and "libdpdk" not in text'
+      - name: Multi-application daemon acceptance
+        run: |
+          sudo unshare --net python3 tests/smoke_daemon.py "$PWD/build" --artifacts "$PWD/build/daemon-smoke"
       - name: Single and multiple interface smoke tests
         run: |
-          sudo unshare --net python3 tests/smoke.py "$PWD/build/netstack-dp"
+          sudo unshare --net python3 tests/smoke.py "$PWD/build/pulsarosd"
           sudo unshare --net python3 tests/smoke.py "$PWD/build/udp-echo" --udp
           sudo unshare --net python3 tests/smoke_multi.py "$PWD/build/udp-echo"
           sudo unshare --net python3 tests/smoke_arp.py "$PWD/build/test-udp-initiator"
       - name: IPv4 forwarding namespace smoke
         run: |
-          sudo unshare --net python3 tests/smoke_forward.py "$PWD/build/netstack-dp" \
+          sudo unshare --net python3 tests/smoke_forward.py "$PWD/build/pulsarosd" \
             --artifacts "$PWD/build/forwarding-smoke"
       - name: TCP namespace smoke with packet loss
         run: |
@@ -43,11 +52,12 @@ jobs:
         run: |
           cmake -S . -B build-sanitize -DCMAKE_BUILD_TYPE=Debug \
             -DCMAKE_C_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer" \
-            -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=address,undefined"
+            -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=address,undefined" \
+            -DCMAKE_SHARED_LINKER_FLAGS="-fsanitize=address,undefined"
           cmake --build build-sanitize -j2
-          ctest --test-dir build-sanitize --output-on-failure
+          ctest --test-dir build-sanitize --output-on-failure --output-junit "$PWD/build-sanitize/unit-tests.xml"
           sudo env ASAN_OPTIONS=detect_leaks=1 UBSAN_OPTIONS=halt_on_error=1 \
-            unshare --net python3 tests/smoke.py "$PWD/build-sanitize/netstack-dp"
+            unshare --net python3 tests/smoke.py "$PWD/build-sanitize/pulsarosd"
           sudo env ASAN_OPTIONS=detect_leaks=1 UBSAN_OPTIONS=halt_on_error=1 \
             unshare --net python3 tests/smoke.py "$PWD/build-sanitize/udp-echo" --udp
           sudo env ASAN_OPTIONS=detect_leaks=1 UBSAN_OPTIONS=halt_on_error=1 \
@@ -58,8 +68,23 @@ jobs:
             unshare --net python3 tests/smoke_tcp.py "$PWD/build-sanitize/tcp-echo" \
             "$PWD/build-sanitize/test-tcp-initiator" --artifacts "$PWD/build-sanitize/tcp-smoke"
           sudo env ASAN_OPTIONS=detect_leaks=1 UBSAN_OPTIONS=halt_on_error=1 \
-            unshare --net python3 tests/smoke_forward.py "$PWD/build-sanitize/netstack-dp" \
+            unshare --net python3 tests/smoke_forward.py "$PWD/build-sanitize/pulsarosd" \
             --artifacts "$PWD/build-sanitize/forwarding-smoke"
+          sudo env ASAN_OPTIONS=detect_leaks=1 UBSAN_OPTIONS=halt_on_error=1 \
+            unshare --net python3 tests/smoke_daemon.py "$PWD/build-sanitize" --artifacts "$PWD/build-sanitize/daemon-smoke"
+      - name: Upload daemon and unit evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: daemon-smoke
+          path: |
+            build/daemon-smoke/*.log
+            build/daemon-smoke/*.conf
+            build-sanitize/daemon-smoke/*.log
+            build-sanitize/daemon-smoke/*.conf
+            build/unit-tests.xml
+            build-sanitize/unit-tests.xml
+          if-no-files-found: ignore
       - name: Upload forwarding smoke evidence
         if: always()
         uses: actions/upload-artifact@v4
