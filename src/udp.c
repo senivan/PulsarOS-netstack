@@ -48,7 +48,7 @@ ssize_t udp_send(struct app_runtime *rt, struct ps_socket_entry *s, const void *
     if (len > PS_DGRAM_MAX_PAYLOAD)
         return send_failure(rt, DROP_MTU, EMSGSIZE);
     struct route_result route;
-    if (ipv4_route_lookup(rt, destination->ip_be, &route) == DROP_NONE &&
+    if (ipv4_route_query(rt, destination->ip_be, s->local.ip_be, NET_IIF_NONE, &route) == DROP_NONE &&
         len + sizeof(struct rte_ipv4_hdr) + sizeof(struct rte_udp_hdr) > route.mtu)
         return send_failure(rt, DROP_MTU, EMSGSIZE);
     struct rte_mbuf *m = rte_pktmbuf_alloc(rt->mbuf_pool);

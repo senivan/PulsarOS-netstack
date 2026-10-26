@@ -19,6 +19,7 @@ struct route_table {
 struct route_result {
     uint16_t netif_id, mtu;
     uint32_t next_hop_be, source_ip_be;
+    uint32_t table, rule_pref, type, local;
 };
 
 int route_add(struct route_table *, uint32_t prefix_be, uint8_t prefix_len, uint16_t netif_id);
@@ -30,3 +31,6 @@ int ipv4_destination_valid(const struct app_runtime *, uint32_t ip_be);
 int route_init_connected(struct app_runtime *);
 enum drop_reason ipv4_route_lookup(const struct app_runtime *, uint32_t dst_ip_be,
                                    struct route_result *);
+
+enum drop_reason ipv4_route_query(const struct app_runtime *, uint32_t dst, uint32_t src,
+                                  uint32_t iif, struct route_result *);

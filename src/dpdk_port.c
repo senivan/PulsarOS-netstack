@@ -88,6 +88,7 @@ static int configure_port(const struct app_config *conf, struct app_runtime *rt,
         fprintf(stderr, "missing or duplicate DPDK port named %s\n", name);
         return -1;
     }
+    snprintf(port->name, sizeof(port->name), "%s", netif->device);
     port->id = index;
     port->port_id = id;
     /* Close the probed device even if configuration fails partway through. */

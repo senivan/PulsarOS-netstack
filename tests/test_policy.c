@@ -46,5 +46,27 @@ int main(void)
     assert(!counters.rules[0].packets && counters.rules[1].packets == 1);
     c.acl_count = 0; c.default_drop = 1;
     assert(!net_acl_accept(&c, &counters, &k, 20) && counters.defaults == 1);
+    static struct app_runtime rt;
+    rt.port_count = 1;
+    rt.ports[0] = (struct port_state){.id = 0, .configured = 1, .started = 1, .mtu = 1500};
+    c.default_drop = 0;
+    c.rule_count = 2;
+    c.rules[0] = (struct net_rule){.pref = 100, .iif = NET_IIF_NONE, .src = ip("10.0.0.0"), .src_prefix = 24, .table = 101};
+    c.rules[1] = (struct net_rule){.pref = 200, .iif = NET_IIF_NONE, .table = 100};
+    rt.network = &c;
+    struct route_result result;
+    assert(ipv4_route_query(&rt, ip("8.8.8.8"), ip("10.0.0.2"), NET_IIF_NONE, &result) == DROP_NONE);
+    assert(result.table == 100 && result.rule_pref == 200 && result.source_ip_be == ip("10.0.0.2"));
+    c.routes[c.route_count++] = (struct net_route){.ip = ip("8.8.8.0"), .prefix = 24, .table = 100, .type = NET_PROHIBIT};
+    assert(ipv4_route_query(&rt, ip("8.8.8.8"), 0, NET_IIF_NONE, &result) == DROP_ROUTE_PROHIBIT);
+    assert(result.type == NET_PROHIBIT);
+    c.rules[1].iif = 0;
+    assert(ipv4_route_query(&rt, ip("8.8.8.8"), 0, NET_IIF_NONE, &result) == DROP_NO_ROUTE);
+    assert(ipv4_route_query(&rt, ip("8.8.8.8"), 0, 0, &result) == DROP_ROUTE_PROHIBIT);
+    c.rule_count = 0;
+    assert(ipv4_route_query(&rt, ip("10.0.0.2"), 0, NET_IIF_NONE, &result) == DROP_NONE && result.local);
+    assert(net_source(&rt, 0, ip("10.0.0.3")) == ip("10.0.0.1"));
+    rt.ports[0].admin_down = 1;
+    assert(ipv4_route_query(&rt, ip("10.0.0.3"), 0, NET_IIF_NONE, &result) == DROP_NO_ROUTE);
     return 0;
 }
