@@ -47,3 +47,9 @@ struct app_runtime;
 int net_config_init(struct app_runtime *);
 int net_address_on(const struct app_runtime *, uint32_t dev, uint32_t ip);
 uint32_t net_source(const struct app_runtime *, uint32_t dev, uint32_t dst);
+
+#define ADMIN_EVENT_MAX 128
+struct admin_event { uint64_t sequence, generation; uint32_t group, id, action; };
+struct admin_events { uint64_t sequence; struct admin_event entries[ADMIN_EVENT_MAX]; };
+
+int net_direct(const struct app_runtime *, uint32_t dev, uint32_t ip);

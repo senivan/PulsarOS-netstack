@@ -27,6 +27,9 @@ struct app_runtime {
     struct route_table routes;
     struct net_config *network;
     struct acl_counters acl_stats;
+    struct admin_events events;
+    uint64_t admin_started, carrier_checked;
+    uint8_t carrier[NETIF_MAX];
     struct dp_graph graph;
     struct neighbour_table neighbours;
     struct neighbour_pending pending_neighbours;
@@ -52,3 +55,5 @@ unsigned app_step(struct app_runtime *rt);
 int app_run(struct app_runtime *rt);
 void app_fini(struct app_runtime *rt);
 void app_dump_stats(const struct app_runtime *rt);
+
+void admin_event_emit(struct app_runtime *, unsigned group, unsigned id, unsigned action);

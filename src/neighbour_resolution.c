@@ -2,6 +2,7 @@
 #include <rte_cycles.h>
 #include "runtime.h"
 #include "arp.h"
+#include "admin.h"
 
 static void release_pending(struct app_runtime *rt, struct pending_neighbour *pending)
 {
@@ -72,8 +73,12 @@ enum drop_reason neighbour_queue(struct app_runtime *rt, uint16_t netif_id,
 int neighbour_update(struct app_runtime *rt, uint16_t netif_id, uint32_t ip_be,
                       const struct rte_ether_addr *mac)
 {
+    struct rte_ether_addr previous, current;
+    int absent = neighbour_lookup(&rt->neighbours, netif_id, ip_be, &previous);
     int rc = neighbour_learn(&rt->neighbours, netif_id, ip_be, mac);
     if (rc) return rc;
+    if (!neighbour_lookup(&rt->neighbours, netif_id, ip_be, &current) &&
+        (absent || !rte_is_same_ether_addr(&previous, &current))) admin_event_emit(rt, ADM_NEIGH, ip_be, ADM_REPLACE);
     for (unsigned i = 0; i < NEIGHBOUR_PENDING_MAX; i++) {
         struct pending_neighbour *pending = &rt->pending_neighbours.entries[i];
         if (pending->count && pending->netif_id == netif_id && pending->ip_be == ip_be)
@@ -115,3 +120,12 @@ void neighbour_fini(struct app_runtime *rt)
 }
 
 _Static_assert(NEIGHBOUR_PENDING_QUEUE_MAX <= GRAPH_FRAME_SIZE, "pending queue must fit a graph frame");
+
+void neighbour_cancel(struct app_runtime *rt, uint16_t dev, uint32_t ip)
+{
+    for (unsigned i = 0; i < NEIGHBOUR_PENDING_MAX; i++) {
+        struct pending_neighbour *p = &rt->pending_neighbours.entries[i];
+        if (p->count && p->netif_id == dev && (!ip || p->ip_be == ip))
+            discard_pending(rt, p, DROP_NEIGHBOUR_CANCELLED, 0);
+    }
+}

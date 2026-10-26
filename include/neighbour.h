@@ -26,7 +26,7 @@ struct neighbour_entry {
     uint32_t ip_be;
     uint16_t netif_id;
     struct rte_ether_addr mac;
-    uint8_t in_use;
+    uint8_t in_use, permanent;
 };
 
 struct neighbour_table { struct neighbour_entry entries[NEIGHBOUR_CAPACITY]; };
@@ -41,3 +41,7 @@ enum drop_reason neighbour_queue(struct app_runtime *, uint16_t netif_id,
 int neighbour_update(struct app_runtime *, uint16_t netif_id, uint32_t ip_be, const struct rte_ether_addr *);
 void neighbour_tick(struct app_runtime *, uint64_t now);
 void neighbour_fini(struct app_runtime *);
+
+int neighbour_set(struct app_runtime *, uint16_t, uint32_t, const struct rte_ether_addr *, int replace);
+int neighbour_delete(struct app_runtime *, uint16_t, uint32_t);
+void neighbour_cancel(struct app_runtime *, uint16_t, uint32_t);
