@@ -1,4 +1,5 @@
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <rte_eal.h>
 #include <rte_pause.h>
@@ -22,7 +23,7 @@ const struct port_state *netif_by_id(const struct app_runtime *rt, uint16_t id)
 int netif_is_local_ip(const struct app_runtime *rt, uint32_t ip_be)
 {
     for (uint16_t i = 0; i < rt->port_count; i++)
-        if (rt->ports[i].configured && rt->ports[i].ip_be == ip_be) return 1;
+        if (rt->ports[i].configured && net_address_on(rt, rt->ports[i].id, ip_be)) return 1;
     return 0;
 }
 
@@ -43,13 +44,14 @@ unsigned app_step(struct app_runtime *rt)
     unsigned received = 0;
     for (uint16_t p = 0; p < rt->port_count; p++) {
         struct port_state *port = &rt->ports[p];
-        if (!port->configured || !port->started) continue;
+        if (!port->configured || !port->started || port->admin_down) continue;
         struct node_frame frame = {0};
         frame.count = rte_eth_rx_burst(port->port_id, 0, frame.pkts, GRAPH_FRAME_SIZE);
         for (uint16_t i = 0; i < frame.count; i++)
             frame.ctxs[i].ingress_port_id = port->port_id;
         received += frame.count;
         port->rx_packets += frame.count;
+        for (unsigned i = 0; i < frame.count; i++) port->rx_bytes += rte_pktmbuf_pkt_len(frame.pkts[i]);
         if (frame.count) graph_submit(rt, NODE_ETH_INPUT, &frame);
     }
     uint64_t now = rte_get_timer_cycles();
@@ -96,6 +98,8 @@ void app_fini(struct app_runtime *rt)
 {
     socket_subsystem_fini(rt);
     neighbour_fini(rt);
+    free(rt->network);
+    rt->network = NULL;
     port_fini(rt);
     rte_eal_cleanup();
 }

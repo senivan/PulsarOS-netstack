@@ -36,7 +36,7 @@ if(PULSAROS_BUILD_DAEMON)
   pkg_check_modules(DPDK REQUIRED IMPORTED_TARGET libdpdk>=22.11)
   find_package(Threads REQUIRED)
   add_library(netstack_core STATIC
-    src/net_config.c src/socket.c src/tcp.c src/tcp_output.c src/tcp_timer.c src/config.c src/dpdk_port.c
+    src/net_config.c src/policy_route.c src/socket.c src/tcp.c src/tcp_output.c src/tcp_timer.c src/config.c src/dpdk_port.c
     src/graph.c src/runtime.c src/neighbour.c src/neighbour_resolution.c src/udp.c src/route.c src/icmp_error.c
     src/nodes/arp.c src/nodes/drop.c src/nodes/ingress.c src/nodes/icmp.c
     src/nodes/register.c src/nodes/tx.c src/nodes/output.c src/nodes/udp.c src/nodes/tcp.c src/nodes/forward.c)

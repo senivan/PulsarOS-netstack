@@ -5,9 +5,11 @@
 #include <rte_ip.h>
 #include "internal.h"
 
-static int valid_source_ip(const struct port_state *port, uint32_t ip_be)
+static int valid_source_ip(const struct app_runtime *rt, const struct port_state *port, uint32_t ip_be)
 {
     uint32_t ip = rte_be_to_cpu_32(ip_be);
+    if (netif_is_local_ip(rt, ip_be)) return 0;
+    if (rt->network) return ipv4_destination_valid(rt, ip_be);
     uint32_t local = rte_be_to_cpu_32(port->ip_be);
     uint32_t mask = port->prefix_len ? UINT32_MAX << (32 - port->prefix_len) : 0;
     if ((ip >> 24) == 0 || (ip >> 24) == 127 || ip >= 0xe0000000u || ip == local) return 0;
@@ -23,7 +25,7 @@ void eth_input_node_run(struct app_runtime *rt, const struct node_frame *in,
         struct rte_mbuf *m = in->pkts[i];
         struct packet_ctx ctx = in->ctxs[i];
         const struct port_state *port = netif_by_dpdk_port(rt, ctx.ingress_port_id);
-        if (!port) {
+        if (!port || port->admin_down) {
             node_drop(rt, NODE_ETH_INPUT, m, &ctx, DROP_PORT_BINDING, 1);
             continue;
         }
@@ -63,7 +65,7 @@ void arp_input_node_run(struct app_runtime *rt, const struct node_frame *in,
         struct rte_mbuf *m = in->pkts[i];
         struct packet_ctx ctx = in->ctxs[i];
         const struct port_state *port = netif_by_dpdk_port(rt, ctx.ingress_port_id);
-        if (!port) {
+        if (!port || port->admin_down) {
             node_drop(rt, NODE_ARP_INPUT, m, &ctx, DROP_PORT_BINDING, 1);
             continue;
         }
@@ -80,11 +82,11 @@ void arp_input_node_run(struct app_runtime *rt, const struct node_frame *in,
             !rte_is_same_ether_addr(&eth->src_addr, &arp->arp_data.arp_sha) ||
             (arp->arp_opcode != rte_cpu_to_be_16(RTE_ARP_OP_REQUEST) &&
              arp->arp_opcode != rte_cpu_to_be_16(RTE_ARP_OP_REPLY)) ||
-            (arp->arp_data.arp_sip && !valid_source_ip(port, arp->arp_data.arp_sip))) {
+            (arp->arp_data.arp_sip && !valid_source_ip(rt, port, arp->arp_data.arp_sip))) {
             node_drop(rt, NODE_ARP_INPUT, m, &ctx, DROP_INVALID_ARP, 1);
             continue;
         }
-        if (arp->arp_data.arp_tip != port->ip_be) {
+        if (!net_address_on(rt, port->id, arp->arp_data.arp_tip)) {
             node_drop(rt, NODE_ARP_INPUT, m, &ctx, DROP_NOT_LOCAL, 0);
             continue;
         }
@@ -94,7 +96,8 @@ void arp_input_node_run(struct app_runtime *rt, const struct node_frame *in,
             continue;
         }
         if (arp->arp_data.arp_sip && !netif_is_local_ip(rt, arp->arp_data.arp_sip) &&
-            route_is_direct(&rt->routes, port->id, arp->arp_data.arp_sip) &&
+            (rt->network ? net_source(rt, port->id, arp->arp_data.arp_sip) != 0 :
+             route_is_direct(&rt->routes, port->id, arp->arp_data.arp_sip)) &&
             neighbour_update(rt, port->id, arp->arp_data.arp_sip, &arp->arp_data.arp_sha) < 0)
             rt->neighbour_learn_failures++;
         if (arp->arp_opcode == rte_cpu_to_be_16(RTE_ARP_OP_REPLY)) {
@@ -103,13 +106,14 @@ void arp_input_node_run(struct app_runtime *rt, const struct node_frame *in,
         }
         struct rte_ether_addr requester = arp->arp_data.arp_sha;
         uint32_t requester_ip = arp->arp_data.arp_sip;
+        uint32_t local_ip = arp->arp_data.arp_tip;
         eth->dst_addr = requester;
         eth->src_addr = port->mac;
         arp->arp_opcode = rte_cpu_to_be_16(RTE_ARP_OP_REPLY);
         arp->arp_data.arp_tha = requester;
         arp->arp_data.arp_tip = requester_ip;
         arp->arp_data.arp_sha = port->mac;
-        arp->arp_data.arp_sip = port->ip_be;
+        arp->arp_data.arp_sip = local_ip;
         /* Discard incoming padding; TX adds freshly zeroed Ethernet padding. */
         rte_pktmbuf_trim(m, rte_pktmbuf_pkt_len(m) - length);
         ctx.egress_port_id = port->port_id;
@@ -124,7 +128,7 @@ void ipv4_input_node_run(struct app_runtime *rt, const struct node_frame *in,
         struct rte_mbuf *m = in->pkts[i];
         struct packet_ctx ctx = in->ctxs[i];
         const struct port_state *port = netif_by_dpdk_port(rt, ctx.ingress_port_id);
-        if (!port) {
+        if (!port || port->admin_down) {
             node_drop(rt, NODE_IPV4_INPUT, m, &ctx, DROP_PORT_BINDING, 1);
             continue;
         }
@@ -142,7 +146,7 @@ void ipv4_input_node_run(struct app_runtime *rt, const struct node_frame *in,
             node_drop(rt, NODE_IPV4_INPUT, m, &ctx, DROP_INVALID_IPV4, 1);
             continue;
         }
-        if (!valid_source_ip(port, ip->src_addr) || netif_is_local_ip(rt, ip->src_addr)) {
+        if (!valid_source_ip(rt, port, ip->src_addr) || netif_is_local_ip(rt, ip->src_addr)) {
             node_drop(rt, NODE_IPV4_INPUT, m, &ctx, DROP_INVALID_SOURCE, 1);
             continue;
         }

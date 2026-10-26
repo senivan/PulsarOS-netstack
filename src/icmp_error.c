@@ -63,7 +63,7 @@ void icmp_send_error(struct app_runtime *rt, const struct rte_mbuf *original,
     }
     if (!take_token(stats, now)) { stats->rate_limited++; return; }
     struct route_result route;
-    if (ipv4_route_lookup(rt, ip->src_addr, &route) != DROP_NONE ||
+    if (ipv4_route_query(rt, ip->src_addr, netif_is_local_ip(rt, ip->dst_addr) ? ip->dst_addr : 0, NET_IIF_NONE, &route) != DROP_NONE ||
         route.mtu < sizeof(*ip) + sizeof(struct icmp_error_hdr) + ihl + RTE_MIN(total - ihl, 8)) {
         stats->failed++;
         return;

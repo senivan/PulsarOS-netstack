@@ -21,7 +21,7 @@ void icmp_input_node_run(struct app_runtime *rt, const struct node_frame *in,
         struct rte_ipv4_hdr *ip = rte_pktmbuf_mtod_offset(m, struct rte_ipv4_hdr *, ctx.l3_offset);
         uint32_t requester = ip->src_addr;
         struct route_result route;
-        enum drop_reason reason = ipv4_route_lookup(rt, requester, &route);
+        enum drop_reason reason = ipv4_route_query(rt, requester, ip->dst_addr, NET_IIF_NONE, &route);
         if (reason != DROP_NONE) {
             node_drop(rt, NODE_ICMP_INPUT, m, &ctx, reason, 0);
             continue;

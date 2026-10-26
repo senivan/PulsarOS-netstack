@@ -83,6 +83,13 @@ int route_config_init(const struct app_config *conf, struct route_table *table)
 int ipv4_destination_valid(const struct app_runtime *rt, uint32_t ip_be)
 {
     if (!unicast(ip_be) || netif_is_local_ip(rt, ip_be)) return 0;
+    if (rt->network) {
+        for (unsigned i = 0; i < rt->network->address_count; i++) {
+            const struct net_address *a = &rt->network->addresses[i];
+            if (!subnet_host(a->ip, a->prefix, ip_be)) return 0;
+        }
+        return 1;
+    }
     for (uint16_t i = 0; i < rt->port_count; i++) {
         const struct port_state *port = &rt->ports[i];
         if (port->configured && !subnet_host(port->ip_be, port->prefix_len, ip_be)) return 0;
@@ -104,6 +111,7 @@ int route_init_connected(struct app_runtime *rt)
 enum drop_reason ipv4_route_lookup(const struct app_runtime *rt, uint32_t dst_ip_be,
                                    struct route_result *result)
 {
+    if (rt->network) return ipv4_route_query(rt, dst_ip_be, 0, NET_IIF_NONE, result);
     if (!ipv4_destination_valid(rt, dst_ip_be)) return DROP_INVALID_DESTINATION;
     const struct route_entry *best = NULL;
     for (uint16_t i = 0; i < rt->routes.count; i++) {
@@ -114,7 +122,7 @@ enum drop_reason ipv4_route_lookup(const struct app_runtime *rt, uint32_t dst_ip
     }
     if (!best) return DROP_NO_ROUTE;
     const struct port_state *port = netif_by_id(rt, best->netif_id);
-    if (!port || !port->started) return DROP_INVALID_EGRESS;
+    if (!port || !port->started || port->admin_down) return DROP_INVALID_EGRESS;
     uint32_t next_hop = best->gateway_be ? best->gateway_be : dst_ip_be;
     if (!best->gateway_be && !subnet_host(best->prefix_be, best->prefix_len, dst_ip_be))
         return DROP_INVALID_DESTINATION;

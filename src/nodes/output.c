@@ -9,7 +9,7 @@ void ipv4_route_node_run(struct app_runtime *rt, const struct node_frame *in,
     for (uint16_t i = 0; i < in->count; i++) {
         struct packet_ctx ctx = in->ctxs[i];
         struct route_result route;
-        enum drop_reason reason = ipv4_route_lookup(rt, ctx.dst_ip_be, &route);
+        enum drop_reason reason = ipv4_route_query(rt, ctx.dst_ip_be, ctx.src_ip_be, NET_IIF_NONE, &route);
         if (reason != DROP_NONE) {
             node_drop(rt, NODE_IPV4_ROUTE, in->pkts[i], &ctx, reason, 0);
             continue;
@@ -33,7 +33,7 @@ void ipv4_output_node_run(struct app_runtime *rt, const struct node_frame *in,
         struct rte_mbuf *m = in->pkts[i];
         struct packet_ctx ctx = in->ctxs[i];
         const struct port_state *port = netif_by_dpdk_port(rt, ctx.egress_port_id);
-        if (!port || !port->started) {
+        if (!port || !port->started || port->admin_down) {
             node_drop(rt, NODE_IPV4_OUTPUT, m, &ctx, DROP_INVALID_EGRESS, 1);
             continue;
         }
@@ -70,7 +70,7 @@ void eth_output_node_run(struct app_runtime *rt, const struct node_frame *in,
         struct rte_mbuf *m = in->pkts[i];
         struct packet_ctx ctx = in->ctxs[i];
         const struct port_state *port = netif_by_dpdk_port(rt, ctx.egress_port_id);
-        if (!port || !port->started) {
+        if (!port || !port->started || port->admin_down) {
             node_drop(rt, NODE_ETH_OUTPUT, m, &ctx, DROP_INVALID_EGRESS, 1);
             continue;
         }

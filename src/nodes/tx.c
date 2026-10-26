@@ -11,7 +11,7 @@ void tx_node_run(struct app_runtime *rt, const struct node_frame *in, struct nod
         struct rte_mbuf *m = in->pkts[i];
         struct packet_ctx ctx = in->ctxs[i];
         struct port_state *port = netif_by_dpdk_port(rt, ctx.egress_port_id);
-        if (!port || !port->started) {
+        if (!port || !port->started || port->admin_down) {
             node_drop(rt, NODE_TX, m, &ctx, DROP_INVALID_EGRESS, 1);
             continue;
         }
@@ -33,7 +33,7 @@ void tx_node_run(struct app_runtime *rt, const struct node_frame *in, struct nod
     }
     for (uint16_t p = 0; p < rt->port_count; p++) {
         struct port_state *port = &rt->ports[p];
-        if (!port->configured || !port->started) continue;
+        if (!port->configured || !port->started || port->admin_down) continue;
         struct rte_mbuf *batch[GRAPH_FRAME_SIZE];
         uint16_t indices[GRAPH_FRAME_SIZE], n = 0;
         for (uint16_t i = 0; i < count; i++) {
@@ -42,9 +42,12 @@ void tx_node_run(struct app_runtime *rt, const struct node_frame *in, struct nod
             batch[n++] = packets[i];
         }
         if (!n) continue;
+        uint32_t lengths[GRAPH_FRAME_SIZE];
+        for (unsigned i = 0; i < n; i++) lengths[i] = rte_pktmbuf_pkt_len(batch[i]);
         uint16_t sent = rte_eth_tx_burst(port->port_id, 0, batch, n);
         for (uint16_t i = 0; i < sent; i++)
             if (contexts[indices[i]].report_acceptance) rt->accepted_sends++;
+        for (unsigned i = 0; i < sent; i++) port->tx_bytes += lengths[i];
         rt->tx_packets += sent;
         port->tx_packets += sent;
         port->tx_drops += n - sent;

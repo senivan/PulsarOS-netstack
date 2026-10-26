@@ -26,7 +26,7 @@ void arp_output_node_run(struct app_runtime *rt, const struct node_frame *in, st
         struct rte_mbuf *m = in->pkts[i];
         struct packet_ctx ctx = in->ctxs[i];
         const struct port_state *port = netif_by_dpdk_port(rt, ctx.egress_port_id);
-        if (!port || !port->started) {
+        if (!port || !port->started || port->admin_down) {
             node_drop(rt, NODE_ARP_OUTPUT, m, &ctx, DROP_INVALID_EGRESS, 1);
             continue;
         }
@@ -47,7 +47,7 @@ void arp_output_node_run(struct app_runtime *rt, const struct node_frame *in, st
         arp->arp_plen = 4;
         arp->arp_opcode = rte_cpu_to_be_16(RTE_ARP_OP_REQUEST);
         arp->arp_data.arp_sha = port->mac;
-        arp->arp_data.arp_sip = port->ip_be;
+        arp->arp_data.arp_sip = net_source(rt, port->id, ctx.next_hop_ip_be);
         arp->arp_data.arp_tip = ctx.next_hop_ip_be;
         node_enqueue(out, NODE_TX, m, &ctx);
     }

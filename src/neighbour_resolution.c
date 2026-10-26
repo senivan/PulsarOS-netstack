@@ -53,7 +53,7 @@ enum drop_reason neighbour_queue(struct app_runtime *rt, uint16_t netif_id,
     if (!pending) return DROP_NEIGHBOUR_PENDING_FULL;
     if (pending->count == NEIGHBOUR_PENDING_QUEUE_MAX) return DROP_NEIGHBOUR_QUEUE_FULL;
     const struct port_state *port = netif_by_id(rt, netif_id);
-    if (!port || !port->started || port->port_id != ctx->egress_port_id) return DROP_INVALID_EGRESS;
+    if (!port || !port->started || port->admin_down || port->port_id != ctx->egress_port_id) return DROP_INVALID_EGRESS;
     int first = !pending->count;
     if (first) {
         pending->netif_id = netif_id;
@@ -88,7 +88,7 @@ void neighbour_tick(struct app_runtime *rt, uint64_t now)
         struct pending_neighbour *pending = &rt->pending_neighbours.entries[i];
         if (!pending->count) continue;
         const struct port_state *port = netif_by_id(rt, pending->netif_id);
-        if (!port || !port->started) {
+        if (!port || !port->started || port->admin_down) {
             discard_pending(rt, pending, DROP_INVALID_EGRESS, now);
             continue;
         }

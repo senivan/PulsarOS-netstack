@@ -9,7 +9,7 @@ int tcp_emit(struct app_runtime *rt, const struct ps_sockaddr *local, const stru
               const void *data, uint16_t length)
 {
     struct route_result route;
-    if (ipv4_route_lookup(rt, remote->ip_be, &route) != DROP_NONE) {
+    if (ipv4_route_query(rt, remote->ip_be, local->ip_be, NET_IIF_NONE, &route) != DROP_NONE) {
         rt->tcp_stats.output_failed++;
         return -ENETUNREACH;
     }

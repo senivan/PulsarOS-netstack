@@ -104,7 +104,7 @@ void tcp_kick(struct app_runtime *rt, struct ps_socket_entry *s, uint64_t now)
     }
     if (c->tx_len) {
         struct route_result route;
-        if (ipv4_route_lookup(rt, s->remote.ip_be, &route) != DROP_NONE || route.mtu <= 40) {
+        if (ipv4_route_query(rt, s->remote.ip_be, s->local.ip_be, NET_IIF_NONE, &route) != DROP_NONE || route.mtu <= 40) {
             tcp_fail(rt, s, ENETUNREACH);
             return;
         }
@@ -125,7 +125,7 @@ int tcp_connect(struct app_runtime *rt, struct ps_socket_entry *s, const struct 
     if (c->state == TCP_SYN_SENT || c->state == TCP_SYN_RECEIVED) return -EALREADY;
     if (c->state != TCP_CLOSED) return c->state == TCP_LISTEN ? -EINVAL : -EISCONN;
     struct route_result route;
-    if (ipv4_route_lookup(rt, addr->ip_be, &route) != DROP_NONE || route.mtu < 44) return -ENETUNREACH;
+    if (ipv4_route_query(rt, addr->ip_be, s->local.ip_be, NET_IIF_NONE, &route) != DROP_NONE || route.mtu < 44) return -ENETUNREACH;
     if (!s->local.port) {
         int rc = socket_bind(rt, s, &(struct ps_sockaddr){0});
         if (rc) return rc;

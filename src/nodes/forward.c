@@ -15,10 +15,12 @@ void ipv4_forward_node_run(struct app_runtime *rt, const struct node_frame *in,
             continue;
         }
         struct route_result route;
-        enum drop_reason reason = ipv4_route_lookup(rt, ip->dst_addr, &route);
+        enum drop_reason reason = ipv4_route_query(rt, ip->dst_addr, ip->src_addr,
+            netif_by_dpdk_port(rt, ctx.ingress_port_id)->id, &route);
         if (reason != DROP_NONE) {
-            if (reason == DROP_NO_ROUTE || reason == DROP_INVALID_EGRESS)
-                icmp_send_error(rt, m, &ctx, 3, 0, 0, rte_get_timer_cycles());
+            if (reason == DROP_NO_ROUTE || reason == DROP_INVALID_EGRESS ||
+                reason == DROP_ROUTE_UNREACHABLE || reason == DROP_ROUTE_PROHIBIT)
+                icmp_send_error(rt, m, &ctx, 3, reason == DROP_ROUTE_PROHIBIT ? 13 : 0, 0, rte_get_timer_cycles());
             node_drop(rt, NODE_IPV4_FORWARD, m, &ctx, reason, 0);
             continue;
         }
