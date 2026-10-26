@@ -167,6 +167,22 @@ void ipv4_input_node_run(struct app_runtime *rt, const struct node_frame *in,
         ctx.dst_ip_be = ip->dst_addr;
         ctx.ip_protocol = ip->next_proto_id;
         rte_pktmbuf_trim(m, rte_pktmbuf_pkt_len(m) - (ctx.l3_offset + total));
+        if (rt->network) {
+            struct acl_key key = { .src = ip->src_addr, .dst = ip->dst_addr,
+                .iif = port->id, .proto = ip->next_proto_id };
+            unsigned length = total - ihl;
+            const uint8_t *l4 = (const uint8_t *)ip + ihl;
+            if ((key.proto == IPPROTO_UDP && length >= 8) ||
+                (key.proto == IPPROTO_TCP && length >= 20)) {
+                key.ports_valid = 1;
+                key.sport = (uint16_t)((uint16_t)l4[0] << 8 | l4[1]);
+                key.dport = (uint16_t)((uint16_t)l4[2] << 8 | l4[3]);
+            }
+            if (!net_acl_accept(rt->network, &rt->acl_stats, &key, total)) {
+                node_drop(rt, NODE_IPV4_INPUT, m, &ctx, DROP_ACL, 0);
+                continue;
+            }
+        }
         if (!netif_is_local_ip(rt, ip->dst_addr)) {
             if (!rt->ipv4_forwarding) {
                 node_drop(rt, NODE_IPV4_INPUT, m, &ctx, DROP_FORWARDING_DISABLED, 0);
