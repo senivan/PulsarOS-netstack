@@ -60,6 +60,15 @@ int admin_request_decode(const uint8_t *b, size_t n, struct admin_request *r)
         memcpy(r->acls[i].dev, p+52, 64);
         if (!memchr(r->acls[i].dev, 0, 64)) return -EINVAL;
     }
-    return 0;
+    int valid = 0;
+    switch (r->group) {
+    case ADM_STATUS: case ADM_STATS: case ADM_APP: case ADM_SOCKET: case ADM_MONITOR: valid = r->verb == ADM_SHOW; break;
+    case ADM_LINK: valid = r->verb == ADM_SHOW || r->verb == ADM_SET; break;
+    case ADM_ADDR: case ADM_NEIGH: valid = r->verb == ADM_SHOW || r->verb == ADM_ADD || r->verb == ADM_REPLACE || r->verb == ADM_DEL || r->verb == ADM_FLUSH; break;
+    case ADM_ROUTE: valid = r->verb <= ADM_GET; break;
+    case ADM_RULE: valid = r->verb == ADM_SHOW || r->verb == ADM_ADD || r->verb == ADM_DEL || r->verb == ADM_FLUSH; break;
+    case ADM_ACL: valid = r->verb == ADM_SHOW || r->verb == ADM_ADD || r->verb == ADM_DEL || r->verb == ADM_FLUSH || r->verb == ADM_APPLY || r->verb == ADM_DEFAULT; break;
+    }
+    return valid ? 0 : -EOPNOTSUPP;
 }
 _Static_assert(sizeof(struct net_acl) == 52, "ACL wire fields must be explicit 32-bit values");
