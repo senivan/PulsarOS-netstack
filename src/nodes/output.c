@@ -74,6 +74,10 @@ void eth_output_node_run(struct app_runtime *rt, const struct node_frame *in,
             node_drop(rt, NODE_ETH_OUTPUT, m, &ctx, DROP_INVALID_EGRESS, 1);
             continue;
         }
+        if (rte_pktmbuf_pkt_len(m) > port->mtu) {
+            node_drop(rt, NODE_ETH_OUTPUT, m, &ctx, DROP_MTU, 0);
+            continue;
+        }
         struct rte_ether_addr destination;
         if (neighbour_lookup(&rt->neighbours, port->id, ctx.next_hop_ip_be, &destination) < 0) {
             enum drop_reason reason = neighbour_queue(rt, port->id, m, &ctx, rte_get_timer_cycles());

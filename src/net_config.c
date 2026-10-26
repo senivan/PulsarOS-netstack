@@ -4,14 +4,6 @@
 #include <string.h>
 #include "runtime.h"
 
-uint32_t net_mask(uint32_t prefix) { return htonl(prefix ? UINT32_MAX << (32 - prefix) : 0); }
-int net_match(uint32_t ip, uint32_t network, uint32_t prefix) { return (ip & net_mask(prefix)) == network; }
-int net_prefix_valid(uint32_t ip, uint32_t prefix) { return prefix <= 32 && !(ip & ~net_mask(prefix)); }
-int net_unicast(uint32_t ip)
-{
-    ip = ntohl(ip);
-    return (ip >> 24) && (ip >> 24) != 127 && ip < 0xe0000000u;
-}
 static int host(uint32_t ip, uint32_t prefix)
 {
     uint32_t mask = net_mask(prefix);
@@ -20,6 +12,8 @@ static int host(uint32_t ip, uint32_t prefix)
 
 int net_connected_rebuild(struct net_config *c)
 {
+    if (c->address_count > NET_ADDR_MAX || c->route_count > NET_ROUTE_MAX) return -EINVAL;
+    for (unsigned i = 0; i < c->address_count; i++) if (c->addresses[i].prefix > 32) return -EINVAL;
     unsigned n = 0;
     for (unsigned i = 0; i < c->route_count; i++)
         if (!c->routes[i].connected) c->routes[n++] = c->routes[i];
@@ -161,5 +155,16 @@ int net_config_init(struct app_runtime *rt)
     if (!rc) rc = net_config_validate(c, rt->port_count);
     if (rc) { free(c); return rc; }
     rt->network = c;
+    return 0;
+}
+
+int net_direct(const struct app_runtime *rt, uint32_t dev, uint32_t ip)
+{
+    if (!rt->network) return route_is_direct(&rt->routes, dev, ip);
+    if (!net_unicast(ip)) return 0;
+    for (unsigned i=0; i<rt->network->route_count; i++) {
+        const struct net_route *r=&rt->network->routes[i];
+        if (r->dev==dev && !r->type && !r->gateway && net_match(ip,r->ip,r->prefix) && host(ip,r->prefix)) return 1;
+    }
     return 0;
 }

@@ -96,8 +96,7 @@ void arp_input_node_run(struct app_runtime *rt, const struct node_frame *in,
             continue;
         }
         if (arp->arp_data.arp_sip && !netif_is_local_ip(rt, arp->arp_data.arp_sip) &&
-            (rt->network ? net_source(rt, port->id, arp->arp_data.arp_sip) != 0 :
-             route_is_direct(&rt->routes, port->id, arp->arp_data.arp_sip)) &&
+            net_direct(rt, port->id, arp->arp_data.arp_sip) &&
             neighbour_update(rt, port->id, arp->arp_data.arp_sip, &arp->arp_data.arp_sha) < 0)
             rt->neighbour_learn_failures++;
         if (arp->arp_opcode == rte_cpu_to_be_16(RTE_ARP_OP_REPLY)) {
