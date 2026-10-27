@@ -41,6 +41,7 @@ struct daemon_client {
 /* The control thread exclusively owns listener, clients, maps and IPC buffers.
  * The worker exclusively owns app_runtime. Only queues and atomic flags cross
  * threads; startup/join bracket access to the remaining service metadata. */
+struct daemon_identity { atomic_uint_fast64_t owner; atomic_int pid, uid; };
 struct daemon_service {
     struct daemon_queue requests, responses;
     atomic_int stopping, done, failed;
@@ -53,6 +54,7 @@ struct daemon_service {
     cpu_set_t control_cpus;
     char path[108];
     struct daemon_client clients[DAEMON_CLIENT_MAX];
+    struct daemon_identity identities[DAEMON_CLIENT_MAX];
 };
 int daemon_prepare(struct daemon_service *, const char *path, unsigned max_clients, unsigned max_sockets);
 int daemon_start(struct daemon_service *);

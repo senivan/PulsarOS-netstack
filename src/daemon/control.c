@@ -171,6 +171,14 @@ static void accept_clients(struct daemon_service *service)
             c->pidfd = (int)syscall(SYS_pidfd_open, credentials.pid, 0);
 #endif
         c->owner = ++service->next_owner;
+        struct ucred identity;
+        socklen_t identity_size = sizeof(identity);
+        if (!getsockopt(fd, SOL_SOCKET, SO_PEERCRED, &identity, &identity_size)) {
+            unsigned index = (unsigned)(c-service->clients);
+            atomic_store(&service->identities[index].pid, identity.pid);
+            atomic_store(&service->identities[index].uid, identity.uid);
+            atomic_store_explicit(&service->identities[index].owner, c->owner, memory_order_release);
+        }
         c->next_handle = 1;
         c->target = IPC_HEADER_SIZE;
     }
@@ -193,6 +201,7 @@ static void *control_run(void *arg)
             if (!c->owner) continue;
             live++;
             if (stopping && !c->dead) disconnect_client(c);
+            if (c->dead) atomic_store_explicit(&service->identities[i].owner, 0, memory_order_release);
             submit_client(service, c);
         }
         if (stopping && !live) break;
@@ -248,7 +257,12 @@ int daemon_prepare(struct daemon_service *service, const char *path, unsigned ma
     atomic_init(&service->failed, 0);
     daemon_queue_init(&service->requests);
     daemon_queue_init(&service->responses);
-    for (unsigned i = 0; i < DAEMON_CLIENT_MAX; i++) service->clients[i].fd = service->clients[i].pidfd = -1;
+    for (unsigned i = 0; i < DAEMON_CLIENT_MAX; i++) {
+        service->clients[i].fd = service->clients[i].pidfd = -1;
+        atomic_init(&service->identities[i].owner, 0);
+        atomic_init(&service->identities[i].pid, 0);
+        atomic_init(&service->identities[i].uid, 0);
+    }
     if (!max_clients || max_clients > DAEMON_CLIENT_MAX || !max_sockets || max_sockets > DAEMON_SOCKET_MAX ||
         !*path || strlen(path) >= sizeof(service->path)) return -EINVAL;
     service->max_clients = max_clients;
