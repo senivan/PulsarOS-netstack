@@ -35,3 +35,7 @@ int admin_request_decode(const uint8_t *, size_t, struct admin_request *);
 int admin_parse(int argc, char **argv, struct admin_request *, char *error, size_t);
 void admin_usage(void);
 int admin_exchange(const char *path, const struct admin_request *, char *, size_t, uint64_t *);
+
+int admin_open(const char *path);
+int admin_receive(int fd, uint32_t id, char *, size_t, uint64_t *);
+int admin_call(int fd, const struct admin_request *, char *, size_t, uint64_t *);
