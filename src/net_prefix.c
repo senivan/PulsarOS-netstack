@@ -9,3 +9,10 @@ int net_unicast(uint32_t ip)
     ip = ntohl(ip);
     return (ip >> 24) && (ip >> 24) != 127 && ip < 0xe0000000u;
 }
+
+int net_host(uint32_t ip, uint32_t prefix)
+{
+    if (prefix > 32) return 0;
+    uint32_t mask = net_mask(prefix);
+    return prefix >= 31 || ((ip & ~mask) && (ip & ~mask) != ~mask);
+}

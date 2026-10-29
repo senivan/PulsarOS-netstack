@@ -33,6 +33,7 @@ struct acl_counters {
     struct acl_counter rules[NET_ACL_MAX];
     uint64_t accepted, dropped, defaults;
 };
+/* IPv4 fields are network order; ports and interface IDs are host order. */
 struct acl_key { uint32_t src, dst, iif; uint16_t sport, dport; uint8_t proto, ports_valid; };
 uint32_t net_mask(uint32_t prefix);
 int net_match(uint32_t ip, uint32_t network, uint32_t prefix);
@@ -41,6 +42,8 @@ int net_unicast(uint32_t ip);
 int net_config_validate(const struct net_config *, unsigned ports);
 int net_connected_rebuild(struct net_config *);
 int net_acl_classify(const struct net_config *, const struct acl_key *);
+void net_acl_classify_batch(const struct net_config *, const struct acl_key *, size_t count, int *results);
+int net_acl_account(const struct net_config *, struct acl_counters *, int result, size_t bytes);
 int net_acl_accept(const struct net_config *, struct acl_counters *, const struct acl_key *, size_t bytes);
 void net_acl_counters_migrate(const struct net_config *, const struct net_config *, struct acl_counters *);
 struct app_runtime;
@@ -49,7 +52,9 @@ int net_address_on(const struct app_runtime *, uint32_t dev, uint32_t ip);
 uint32_t net_source(const struct app_runtime *, uint32_t dev, uint32_t dst);
 
 #define ADMIN_EVENT_MAX 128
-struct admin_event { uint64_t sequence, generation; uint32_t group, id, action; };
+struct admin_event { uint64_t sequence, generation; uint32_t group, id, action, ip, prefix, dev, table; };
 struct admin_events { uint64_t sequence; struct admin_event entries[ADMIN_EVENT_MAX]; };
 
 int net_direct(const struct app_runtime *, uint32_t dev, uint32_t ip);
+
+int net_host(uint32_t ip, uint32_t prefix);

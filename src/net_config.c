@@ -4,11 +4,6 @@
 #include <string.h>
 #include "runtime.h"
 
-static int host(uint32_t ip, uint32_t prefix)
-{
-    uint32_t mask = net_mask(prefix);
-    return prefix >= 31 || ((ip & ~mask) && (ip & ~mask) != ~mask);
-}
 
 int net_connected_rebuild(struct net_config *c)
 {
@@ -40,7 +35,7 @@ int net_config_validate(const struct net_config *c, unsigned ports)
         c->rule_count > NET_RULE_MAX || c->acl_count > NET_ACL_MAX || c->default_drop > 1) return -EINVAL;
     for (unsigned i = 0; i < c->address_count; i++) {
         const struct net_address *a = &c->addresses[i];
-        if (a->dev >= ports || a->prefix > 32 || !net_unicast(a->ip) || !host(a->ip, a->prefix)) return -EINVAL;
+        if (a->dev >= ports || a->prefix > 32 || !net_unicast(a->ip) || !net_host(a->ip, a->prefix)) return -EINVAL;
         for (unsigned j = 0; j < i; j++) if (c->addresses[j].ip == a->ip) return -EEXIST;
     }
     for (unsigned i = 0; i < c->route_count; i++) {
@@ -58,13 +53,14 @@ int net_config_validate(const struct net_config *c, unsigned ports)
         int reachable = 0;
         for (unsigned j = 0; j < c->address_count; j++) {
             const struct net_address *a = &c->addresses[j];
-            if (a->ip == r->gateway) return -EINVAL;
-            if (a->dev == r->dev && net_match(r->gateway, a->ip & net_mask(a->prefix), a->prefix) && host(r->gateway, a->prefix)) reachable = 1;
+            if (a->ip == r->gateway ||
+                (net_match(r->gateway, a->ip & net_mask(a->prefix), a->prefix) && !net_host(r->gateway, a->prefix))) return -EINVAL;
+            if (a->dev == r->dev && net_match(r->gateway, a->ip & net_mask(a->prefix), a->prefix) && net_host(r->gateway, a->prefix)) reachable = 1;
         }
         for (unsigned j = 0; j < c->route_count; j++) {
             const struct net_route *p = &c->routes[j];
             if (p->table == r->table && p->dev == r->dev && p->type == NET_UNICAST && !p->gateway &&
-                net_match(r->gateway, p->ip, p->prefix) && host(r->gateway, p->prefix)) reachable = 1;
+                net_match(r->gateway, p->ip, p->prefix) && net_host(r->gateway, p->prefix)) reachable = 1;
         }
         if (!reachable) return -ENETUNREACH;
     }
@@ -99,14 +95,21 @@ int net_acl_classify(const struct net_config *c, const struct acl_key *k)
     }
     return -1;
 }
-int net_acl_accept(const struct net_config *c, struct acl_counters *s, const struct acl_key *k, size_t bytes)
+void net_acl_classify_batch(const struct net_config *c, const struct acl_key *keys, size_t count, int *results)
 {
-    int i = net_acl_classify(c, k);
+    for (size_t i = 0; i < count; i++) results[i] = net_acl_classify(c, &keys[i]);
+}
+int net_acl_account(const struct net_config *c, struct acl_counters *s, int i, size_t bytes)
+{
     unsigned drop = c->default_drop;
-    if (i >= 0) { s->rules[i].packets++; s->rules[i].bytes += bytes; drop = c->acls[i].drop; }
+    if (i >= 0 && (unsigned)i < c->acl_count) { s->rules[i].packets++; s->rules[i].bytes += bytes; drop = c->acls[i].drop; }
     else s->defaults++;
     if (drop) s->dropped++; else s->accepted++;
     return !drop;
+}
+int net_acl_accept(const struct net_config *c, struct acl_counters *s, const struct acl_key *k, size_t bytes)
+{
+    return net_acl_account(c, s, net_acl_classify(c, k), bytes);
 }
 void net_acl_counters_migrate(const struct net_config *old, const struct net_config *next, struct acl_counters *s)
 {
@@ -164,7 +167,7 @@ int net_direct(const struct app_runtime *rt, uint32_t dev, uint32_t ip)
     if (!net_unicast(ip)) return 0;
     for (unsigned i=0; i<rt->network->route_count; i++) {
         const struct net_route *r=&rt->network->routes[i];
-        if (r->dev==dev && !r->type && !r->gateway && net_match(ip,r->ip,r->prefix) && host(ip,r->prefix)) return 1;
+        if (r->dev==dev && !r->type && !r->gateway && net_match(ip,r->ip,r->prefix) && net_host(ip,r->prefix)) return 1;
     }
     return 0;
 }

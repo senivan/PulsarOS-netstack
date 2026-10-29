@@ -166,45 +166,6 @@ void ipv4_input_node_run(struct app_runtime *rt, const struct node_frame *in,
         ctx.dst_ip_be = ip->dst_addr;
         ctx.ip_protocol = ip->next_proto_id;
         rte_pktmbuf_trim(m, rte_pktmbuf_pkt_len(m) - (ctx.l3_offset + total));
-        if (rt->network) {
-            struct acl_key key = { .src = ip->src_addr, .dst = ip->dst_addr,
-                .iif = port->id, .proto = ip->next_proto_id };
-            unsigned length = total - ihl;
-            const uint8_t *l4 = (const uint8_t *)ip + ihl;
-            if ((key.proto == IPPROTO_UDP && length >= 8) ||
-                (key.proto == IPPROTO_TCP && length >= 20)) {
-                key.ports_valid = 1;
-                key.sport = (uint16_t)((uint16_t)l4[0] << 8 | l4[1]);
-                key.dport = (uint16_t)((uint16_t)l4[2] << 8 | l4[3]);
-            }
-            if (!net_acl_accept(rt->network, &rt->acl_stats, &key, total)) {
-                node_drop(rt, NODE_IPV4_INPUT, m, &ctx, DROP_ACL, 0);
-                continue;
-            }
-        }
-        if (!netif_is_local_ip(rt, ip->dst_addr)) {
-            if (!rt->ipv4_forwarding) {
-                node_drop(rt, NODE_IPV4_INPUT, m, &ctx, DROP_FORWARDING_DISABLED, 0);
-                continue;
-            }
-            uint32_t src = rte_be_to_cpu_32(ip->src_addr), dst = rte_be_to_cpu_32(ip->dst_addr);
-            if (!ipv4_destination_valid(rt, ip->src_addr) || (src >> 16) == 0xa9fe) {
-                node_drop(rt, NODE_IPV4_INPUT, m, &ctx, DROP_INVALID_SOURCE, 0);
-                continue;
-            }
-            if (!ipv4_destination_valid(rt, ip->dst_addr) || (dst >> 16) == 0xa9fe) {
-                node_drop(rt, NODE_IPV4_INPUT, m, &ctx, DROP_INVALID_DESTINATION, 0);
-                continue;
-            }
-            ctx.transit = 1;
-            node_enqueue(out, NODE_IPV4_FORWARD, m, &ctx);
-            continue;
-        }
-        switch (ip->next_proto_id) {
-        case IPPROTO_ICMP: node_enqueue(out, NODE_ICMP_INPUT, m, &ctx); break;
-        case IPPROTO_UDP: node_enqueue(out, NODE_UDP_INPUT, m, &ctx); break;
-        case IPPROTO_TCP: node_enqueue(out, NODE_TCP_INPUT, m, &ctx); break;
-        default: node_drop(rt, NODE_IPV4_INPUT, m, &ctx, DROP_UNSUPPORTED_PROTOCOL, 0); break;
-        }
+        node_enqueue(out, NODE_IPV4_ACL, m, &ctx);
     }
 }
