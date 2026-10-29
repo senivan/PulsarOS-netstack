@@ -56,14 +56,15 @@ int admin_format(const struct admin_view *v, const struct admin_request *r, cons
     char b[16], d[16], mac[24];
     if (r->group == ADM_STATUS) {
         unsigned clients=0, tables=3;
+        uint32_t ids[NET_ROUTE_MAX+NET_RULE_MAX+3]={NET_TABLE_LOCAL,NET_TABLE_MAIN,NET_TABLE_DEFAULT};
         for (unsigned i=0;i<apps->max_clients;i++) clients += !!atomic_load_explicit(&apps->identities[i].owner,memory_order_acquire);
-        for (unsigned i=0;i<v->config.route_count;i++) {
-            uint32_t t=v->config.routes[i].table;
-            if (t==NET_TABLE_MAIN || t==NET_TABLE_DEFAULT) continue;
-            unsigned j; for(j=0;j<i;j++) if(v->config.routes[j].table==t) break;
-            if(j==i) tables++;
+        for (unsigned i=0;i<v->config.route_count+v->config.rule_count;i++) {
+            uint32_t t=i<v->config.route_count ? v->config.routes[i].table : v->config.rules[i-v->config.route_count].table;
+            if (!t) continue;
+            unsigned j; for(j=0;j<tables;j++) if(ids[j]==t) break;
+            if(j==tables) ids[tables++]=t;
         }
-        row(&o); string(&o,"state","running",0); number(&o,"uptime_seconds",v->uptime,0); number(&o,"workers",1,0);
+        row(&o); string(&o,"state","running",0); number(&o,"uptime_seconds",v->uptime,0); number(&o,"generation",v->config.generation,0); number(&o,"workers",1,0);
         number(&o,"ports",v->port_count,0); number(&o,"applications",clients,0); number(&o,"sockets",v->socket_count,0);
         number(&o,"acl_rules",v->config.acl_count,0); number(&o,"routing_tables",tables,0); number(&o,"forwarding",v->forwarding,1); end(&o);
     } else if (r->group == ADM_LINK) {
@@ -72,7 +73,7 @@ int admin_format(const struct admin_view *v, const struct admin_request *r, cons
             const struct admin_link *l=&v->links[i]; const struct port_state *p=&l->port;
             snprintf(mac,sizeof(mac),"%02x:%02x:%02x:%02x:%02x:%02x",p->mac.addr_bytes[0],p->mac.addr_bytes[1],p->mac.addr_bytes[2],p->mac.addr_bytes[3],p->mac.addr_bytes[4],p->mac.addr_bytes[5]);
             row(&o); number(&o,"id",p->id,0); string(&o,"name",p->name,0); string(&o,"admin",p->admin_down?"DOWN":"UP",0);
-            number(&o,"carrier",l->carrier,0); number(&o,"mtu",p->mtu,!(r->flags&ADMIN_STATS) && (r->flags&ADMIN_BRIEF));
+            number(&o,"carrier_known",l->carrier_known,0); number(&o,"carrier",l->carrier,0); number(&o,"mtu",p->mtu,!(r->flags&ADMIN_STATS) && (r->flags&ADMIN_BRIEF));
             if(!(r->flags&ADMIN_BRIEF)) { number(&o,"dpdk_port",p->port_id,0); string(&o,"mac",mac,0); string(&o,"driver",l->driver,!(r->flags&ADMIN_STATS)); }
             if(r->flags&ADMIN_STATS) {
                 number(&o,"rx_packets",p->rx_packets,0); number(&o,"rx_bytes",p->rx_bytes,0); number(&o,"tx_packets",p->tx_packets,0); number(&o,"tx_bytes",p->tx_bytes,0);
@@ -135,10 +136,15 @@ int admin_format(const struct admin_view *v, const struct admin_request *r, cons
             number(&o,"sockets",count,0); string(&o,"state","connected",1); end(&o);
         }
     } else if(r->group==ADM_STATS) {
-        for(unsigned i=0;i<NODE_MAX;i++) { const struct node_stats *n=&v->nodes[i];
-            row(&o); number(&o,"node",i,0); number(&o,"packets",n->packets,0); number(&o,"bytes",n->bytes,0); number(&o,"drops",n->drops,0); number(&o,"errors",n->errors,1); end(&o);
+        row(&o); string(&o,"kind","tcp",0); number(&o,"syns",v->tcp.syns,0); number(&o,"established",v->tcp.established,0);
+        number(&o,"closed",v->tcp.closed,0); number(&o,"resets",v->tcp.resets,0); number(&o,"retransmissions",v->tcp.retransmissions,0); number(&o,"timeouts",v->tcp.timeouts,1); end(&o);
+        row(&o); string(&o,"kind","icmp",0); number(&o,"generated",v->icmp.generated,0); number(&o,"suppressed",v->icmp.suppressed,0);
+        number(&o,"rate_limited",v->icmp.rate_limited,0); number(&o,"failed",v->icmp.failed,1); end(&o);
+        if(r->flags&ADMIN_NODES) for(unsigned i=0;i<NODE_MAX;i++) { const struct node_stats *n=&v->nodes[i];
+            row(&o); string(&o,"kind","node",0); string(&o,"name",v->node_names[i],0); number(&o,"node",i,0); number(&o,"packets",n->packets,0);
+            number(&o,"bytes",n->bytes,0); number(&o,"drops",n->drops,0); number(&o,"errors",n->errors,1); end(&o);
         }
-        for(unsigned i=1;i<DROP_REASON_MAX;i++) if(v->drops[i]) {row(&o); number(&o,"drop_reason",i,0); number(&o,"count",v->drops[i],1); end(&o);}
+        for(unsigned i=1;i<DROP_REASON_MAX;i++) if(v->drops[i]) {row(&o); string(&o,"kind","drop",0); string(&o,"reason",graph_drop_name(i),0); number(&o,"count",v->drops[i],1); end(&o);}
     } else return -EOPNOTSUPP;
     if(o.json) append(&o,"]}\n");
     return o.error ? o.error : (int)o.used;

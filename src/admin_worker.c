@@ -30,7 +30,7 @@ static void capture(struct app_runtime *rt, struct admin_view *v, const struct a
         struct admin_link *p = &v->links[i];
         p->port = rt->ports[i];
         struct rte_eth_link link = {0};
-        rte_eth_link_get_nowait(p->port.port_id, &link);
+        p->carrier_known = !rte_eth_link_get_nowait(p->port.port_id, &link);
         p->carrier = link.link_status;
         rte_eth_stats_get(p->port.port_id, &p->hardware);
         struct rte_eth_dev_info info = {0};
@@ -45,7 +45,11 @@ static void capture(struct app_runtime *rt, struct admin_view *v, const struct a
         if (s->type == PS_SOCK_STREAM) { out->state=s->transport.tcp.state; out->rx=s->transport.tcp.rx_len; out->tx=s->transport.tcp.tx_len; }
         else out->rx=s->transport.udp.count;
     }
-    for (unsigned i = 0; i < NODE_MAX; i++) v->nodes[i] = rt->graph.nodes[i].stats;
+    v->tcp=rt->tcp_stats; v->icmp=rt->icmp_errors;
+    for (unsigned i = 0; i < NODE_MAX; i++) {
+        v->nodes[i] = rt->graph.nodes[i].stats;
+        snprintf(v->node_names[i],sizeof(v->node_names[i]),"%s",rt->graph.nodes[i].name);
+    }
     memcpy(v->drops, rt->graph.drop_reasons, sizeof(v->drops));
     if (r->group == ADM_ROUTE && r->verb == ADM_GET)
         v->route_reason = ipv4_route_query(rt, r->v[F_IP], r->v[F_SRC], NET_IIF_NONE, &v->route);
@@ -154,6 +158,9 @@ unsigned admin_progress(struct admin_service *service, struct app_runtime *rt)
             rt->network = j->next;
             if (j->request.group == ADM_ADDR || j->request.group == ADM_ROUTE || j->request.group == ADM_RULE) neighbour_fini(rt);
             admin_event_emit(rt, j->request.group, j->request.v[F_PREF], j->request.verb);
+            struct admin_event *event=&rt->events.entries[(rt->events.sequence-1)%ADMIN_EVENT_MAX];
+            event->ip=j->request.v[F_IP]; event->prefix=j->request.v[F_PREFIX]; event->table=j->request.v[F_TABLE];
+            for (unsigned i=0; i<rt->port_count; i++) if (!strcmp(j->request.dev,rt->ports[i].name)) event->dev=i;
             admin_event_emit(rt, ADM_STATUS, 0, ADM_APPLY);
         }
     } else if (j->type == ADMIN_HARDWARE) j->result = admin_worker_operation(rt, &j->request);

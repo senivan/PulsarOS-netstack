@@ -57,7 +57,7 @@ int neighbour_set(struct app_runtime *rt, uint16_t dev, uint32_t ip, const struc
     if (!found) found = empty;
     if (!found) return -ENOSPC;
     *found = (struct neighbour_entry){ .ip_be = ip, .netif_id = dev, .mac = *mac, .in_use = 1, .permanent = 1 };
-    admin_event_emit(rt, ADM_NEIGH, ip, replace ? ADM_REPLACE : ADM_ADD);
+    admin_neighbour_event(rt, dev, ip, replace ? ADM_REPLACE : ADM_ADD);
     return neighbour_update(rt, dev, ip, mac);
 }
 int neighbour_delete(struct app_runtime *rt, uint16_t dev, uint32_t ip)
@@ -66,7 +66,7 @@ int neighbour_delete(struct app_runtime *rt, uint16_t dev, uint32_t ip)
         struct neighbour_entry *e = &rt->neighbours.entries[i];
         if (!e->in_use || e->netif_id != dev || e->ip_be != ip) continue;
         *e = (struct neighbour_entry){0};
-        admin_event_emit(rt, ADM_NEIGH, ip, ADM_DEL);
+        admin_neighbour_event(rt, dev, ip, ADM_DEL);
         neighbour_cancel(rt, dev, ip);
         return 0;
     }

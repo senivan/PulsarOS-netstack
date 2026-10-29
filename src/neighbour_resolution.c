@@ -78,7 +78,7 @@ int neighbour_update(struct app_runtime *rt, uint16_t netif_id, uint32_t ip_be,
     int rc = neighbour_learn(&rt->neighbours, netif_id, ip_be, mac);
     if (rc) return rc;
     if (!neighbour_lookup(&rt->neighbours, netif_id, ip_be, &current) &&
-        (absent || !rte_is_same_ether_addr(&previous, &current))) admin_event_emit(rt, ADM_NEIGH, ip_be, ADM_REPLACE);
+        (absent || !rte_is_same_ether_addr(&previous, &current))) admin_neighbour_event(rt, netif_id, ip_be, ADM_REPLACE);
     for (unsigned i = 0; i < NEIGHBOUR_PENDING_MAX; i++) {
         struct pending_neighbour *pending = &rt->pending_neighbours.entries[i];
         if (pending->count && pending->netif_id == netif_id && pending->ip_be == ip_be)
