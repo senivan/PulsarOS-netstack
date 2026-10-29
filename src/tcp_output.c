@@ -9,9 +9,10 @@ int tcp_emit(struct app_runtime *rt, const struct ps_sockaddr *local, const stru
               const void *data, uint16_t length)
 {
     struct route_result route;
-    if (ipv4_route_query(rt, remote->ip_be, local->ip_be, NET_IIF_NONE, &route) != DROP_NONE) {
+    enum drop_reason reason = ipv4_route_query(rt, remote->ip_be, local->ip_be, NET_IIF_NONE, &route);
+    if (reason != DROP_NONE) {
         rt->tcp_stats.output_failed++;
-        return -ENETUNREACH;
+        return -ipv4_route_errno(reason);
     }
     unsigned header_len = sizeof(struct rte_tcp_hdr) + ((flags & RTE_TCP_SYN_FLAG) ? 4 : 0);
     if (route.mtu < 20 + header_len + length) {

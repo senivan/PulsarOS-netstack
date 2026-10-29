@@ -1,3 +1,4 @@
+#include <errno.h>
 #include "runtime.h"
 
 static enum drop_reason action(uint32_t type)
@@ -26,6 +27,7 @@ static enum drop_reason table_lookup(const struct app_runtime *rt, uint32_t dst,
     *out = (struct route_result){ .table = table, .rule_pref = pref, .type = best->type,
         .netif_id = best->dev, .next_hop_be = best->gateway ? best->gateway : dst };
     if (best->type) return action(best->type);
+    if (!best->gateway && !net_host(dst, best->prefix)) return DROP_INVALID_DESTINATION;
     const struct port_state *p = netif_by_id(rt, best->dev);
     out->mtu = p->mtu;
     out->source_ip_be = src ? src : net_source(rt, p->id, out->next_hop_be);
@@ -56,4 +58,11 @@ enum drop_reason ipv4_route_query(const struct app_runtime *rt, uint32_t dst, ui
     enum drop_reason reason = table_lookup(rt, dst, src, NET_TABLE_MAIN, 32766, out);
     if (reason != DROP_NO_ROUTE) return reason;
     return table_lookup(rt, dst, src, NET_TABLE_DEFAULT, 32767, out);
+}
+
+int ipv4_route_errno(enum drop_reason reason)
+{
+    if (reason == DROP_ROUTE_PROHIBIT) return EACCES;
+    if (reason == DROP_ROUTE_BLACKHOLE) return EINVAL;
+    return ENETUNREACH;
 }

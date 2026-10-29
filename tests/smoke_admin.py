@@ -14,6 +14,8 @@ import time
 from contextlib import ExitStack
 from pathlib import Path
 
+from scapy.all import Ether, IP, UDP, ICMP, get_if_hwaddr, srp1
+
 from daemon_helpers import Daemon
 from smoke import ip
 from smoke_daemon import IPC, read_exact, tcp_echo, udp_echo
@@ -127,6 +129,20 @@ s.close()
         assert cli('route', 'get', '203.0.113.9')['items'][0]['next_hop'] == '198.51.100.1'
         cli('route', 'del', '203.0.113.0/24')
         cli('route', 'get', '203.0.113.9', ok=False)
+        mac = cli('link', 'show', 'dev', 'ma-host0')['items'][0]['mac']
+        for route_type, code in (('unreachable', 0), ('prohibit', 13), ('blackhole', None)):
+            cli('route', 'add', route_type, '203.0.113.0/24')
+            frame = Ether(src=get_if_hwaddr('ma-peer0'), dst=mac)/IP(src='192.0.2.1', dst='203.0.113.9')/UDP(sport=49000, dport=9090)
+            response = srp1(frame, iface='ma-peer0', timeout=.3, verbose=False)
+            if code is None:
+                assert response is None
+            else:
+                assert response is not None and response[ICMP].type == 3 and response[ICMP].code == code
+            fd = session.create()
+            result, _ = session.call(9, fd=fd, address=struct.unpack('!I', socket.inet_aton('203.0.113.9'))[0], port=9090, payload=b'route-type')
+            assert result == -({'unreachable': errno.ENETUNREACH, 'prohibit': errno.EACCES, 'blackhole': errno.EINVAL}[route_type])
+            assert session.call(11, fd=fd)[0] == 0
+            cli('route', 'del', '203.0.113.0/24')
         cli('route', 'add', 'default', 'via', '198.51.100.1', 'dev', 'ma-host1', 'table', '100')
         cli('rule', 'add', 'pref', '50', 'from', '10.10.0.0/24', 'lookup', '101')
         cli('rule', 'add', 'pref', '100', 'from', '10.10.0.0/24', 'lookup', '100')
