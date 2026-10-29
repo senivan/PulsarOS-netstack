@@ -104,8 +104,9 @@ void tcp_kick(struct app_runtime *rt, struct ps_socket_entry *s, uint64_t now)
     }
     if (c->tx_len) {
         struct route_result route;
-        if (ipv4_route_query(rt, s->remote.ip_be, s->local.ip_be, NET_IIF_NONE, &route) != DROP_NONE || route.mtu <= 40) {
-            tcp_fail(rt, s, ENETUNREACH);
+        enum drop_reason reason = ipv4_route_query(rt, s->remote.ip_be, s->local.ip_be, NET_IIF_NONE, &route);
+        if (reason != DROP_NONE || route.mtu <= 40) {
+            tcp_fail(rt, s, ipv4_route_errno(reason));
             return;
         }
         uint16_t length = RTE_MIN(c->tx_len, RTE_MIN(c->peer_window, RTE_MIN(c->mss, route.mtu - 40)));
@@ -125,7 +126,8 @@ int tcp_connect(struct app_runtime *rt, struct ps_socket_entry *s, const struct 
     if (c->state == TCP_SYN_SENT || c->state == TCP_SYN_RECEIVED) return -EALREADY;
     if (c->state != TCP_CLOSED) return c->state == TCP_LISTEN ? -EINVAL : -EISCONN;
     struct route_result route;
-    if (ipv4_route_query(rt, addr->ip_be, s->local.ip_be, NET_IIF_NONE, &route) != DROP_NONE || route.mtu < 44) return -ENETUNREACH;
+    enum drop_reason reason = ipv4_route_query(rt, addr->ip_be, s->local.ip_be, NET_IIF_NONE, &route);
+    if (reason != DROP_NONE || route.mtu < 44) return -ipv4_route_errno(reason);
     if (!s->local.port) {
         int rc = socket_bind(rt, s, &(struct ps_sockaddr){0});
         if (rc) return rc;

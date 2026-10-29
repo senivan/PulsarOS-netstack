@@ -34,3 +34,5 @@ enum drop_reason ipv4_route_lookup(const struct app_runtime *, uint32_t dst_ip_b
 
 enum drop_reason ipv4_route_query(const struct app_runtime *, uint32_t dst, uint32_t src,
                                   uint32_t iif, struct route_result *);
+
+int ipv4_route_errno(enum drop_reason);
