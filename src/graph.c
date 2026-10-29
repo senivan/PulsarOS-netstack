@@ -117,7 +117,7 @@ int graph_submit(struct app_runtime *rt, enum node_id node, const struct node_fr
     return 0;
 }
 
-void graph_dump_stats(const struct app_runtime *rt)
+const char *graph_drop_name(unsigned reason)
 {
     static const char *const reasons[DROP_REASON_MAX] = {
         "none", "port_binding", "truncated_eth", "unsupported_ethertype", "invalid_arp",
@@ -132,6 +132,11 @@ void graph_dump_stats(const struct app_runtime *rt)
         "tcp_no_socket", "tcp_backlog_full", "tcp_out_of_order",
         "route_blackhole", "route_unreachable", "route_prohibit", "acl"
     };
+    return reason < DROP_REASON_MAX ? reasons[reason] : "unknown";
+}
+
+void graph_dump_stats(const struct app_runtime *rt)
+{
     puts("node statistics:");
     for (unsigned i = 0; i < NODE_MAX; i++) {
         const struct dp_node *n = &rt->graph.nodes[i];
@@ -141,6 +146,6 @@ void graph_dump_stats(const struct app_runtime *rt)
     }
     puts("drop reasons:");
     for (unsigned i = 1; i < DROP_REASON_MAX; i++)
-        if (rt->graph.drop_reasons[i]) printf("  %-24s %llu\n", reasons[i],
+        if (rt->graph.drop_reasons[i]) printf("  %-24s %llu\n", graph_drop_name(i),
             (unsigned long long)rt->graph.drop_reasons[i]);
 }

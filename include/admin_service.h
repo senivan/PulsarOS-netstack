@@ -8,7 +8,7 @@
 #define ADMIN_CLIENT_MAX 16
 struct admin_link {
     struct port_state port;
-    uint32_t carrier;
+    uint32_t carrier, carrier_known;
     char driver[64];
     struct rte_eth_stats hardware;
 };
@@ -25,6 +25,9 @@ struct admin_view {
     struct admin_socket sockets[PS_SOCKET_MAX];
     struct neighbour_table neighbours;
     struct node_stats nodes[NODE_MAX];
+    char node_names[NODE_MAX][32];
+    struct tcp_stats tcp;
+    struct icmp_error_state icmp;
     uint64_t drops[DROP_REASON_MAX], uptime;
     uint32_t port_count, socket_count, forwarding;
     struct route_result route;
@@ -49,6 +52,9 @@ struct admin_connection {
     struct admin_request request;
 };
 struct daemon_service;
+/* state: 0 control owns the mailbox, 1 worker owns it, 2 control owns the reply.
+ * Release/acquire transfers ownership. Activation returns the retired snapshot
+ * for control-side reclamation after the graph has drained. */
 struct admin_service {
     atomic_int state, stopping, done, failed;
     pthread_t thread;

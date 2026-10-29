@@ -57,3 +57,5 @@ void app_fini(struct app_runtime *rt);
 void app_dump_stats(const struct app_runtime *rt);
 
 void admin_event_emit(struct app_runtime *, unsigned group, unsigned id, unsigned action);
+
+void admin_neighbour_event(struct app_runtime *, uint16_t dev, uint32_t ip, unsigned action);

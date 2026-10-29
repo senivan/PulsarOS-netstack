@@ -1,4 +1,5 @@
 #include <errno.h>
+#include <arpa/inet.h>
 #include <fcntl.h>
 #include <poll.h>
 #include <stdio.h>
@@ -43,11 +44,19 @@ static void events(struct admin_service *s, struct admin_connection *c)
         const struct admin_event *v=&e->entries[c->sequence%ADMIN_EVENT_MAX];
         c->sequence++;
         if(c->request.v[F_PROTO] && c->request.v[F_PROTO]!=v->group && v->group!=ADM_STATUS) continue;
+        static const char *kinds[]={"", "generation", "stats", "link", "addr", "route", "rule", "neigh", "acl", "app", "socket", "monitor"};
+        char ip[16]; inet_ntop(AF_INET,&v->ip,ip,sizeof(ip));
         int n=snprintf((char *)c->output+ADMIN_HEADER+used,ADMIN_RESPONSE_MAX-used,
-            "{\"schema\":1,\"sequence\":%llu,\"generation\":%llu,\"group\":%u,\"id\":%u,\"action\":%u,\"lost\":%llu}\n",
-            (unsigned long long)v->sequence,(unsigned long long)v->generation,v->group,v->id,v->action,(unsigned long long)lost);
+            "{\"schema\":1,\"sequence\":%llu,\"generation\":%llu,\"group\":%u,\"id\":%u,\"action\":%u,\"kind\":\"%s\",\"address\":\"%s\",\"prefix\":%u,\"dev\":%u,\"table\":%u,\"lost\":%llu}\n",
+            (unsigned long long)v->sequence,(unsigned long long)v->generation,v->group,v->id,v->action,kinds[v->group],ip,v->prefix,v->dev,v->table,(unsigned long long)lost);
         if(n<0 || (size_t)n>=ADMIN_RESPONSE_MAX-used) break;
         used+=(size_t)n; lost=0;
+    }
+    if(lost && !used) {
+        int n=snprintf((char *)c->output+ADMIN_HEADER,ADMIN_RESPONSE_MAX,
+            "{\"schema\":1,\"kind\":\"overflow\",\"sequence\":%llu,\"generation\":%llu,\"lost\":%llu}\n",
+            (unsigned long long)c->sequence,(unsigned long long)s->job.view.config.generation,(unsigned long long)lost);
+        if(n>0) used=(size_t)n;
     }
     if(used) response(c,0,s->job.view.config.generation,used);
 }

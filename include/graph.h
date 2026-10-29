@@ -34,6 +34,7 @@ int node_enqueue(struct node_output *out, enum node_id node, struct rte_mbuf *m,
                  const struct packet_ctx *ctx);
 void graph_drop(struct app_runtime *rt, enum node_id owner, struct rte_mbuf *m,
                 struct packet_ctx *ctx, enum drop_reason reason, int error);
+const char *graph_drop_name(unsigned reason);
 void graph_dump_stats(const struct app_runtime *rt);
 void nodes_register(struct app_runtime *rt);
 
