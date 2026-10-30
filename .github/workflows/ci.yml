@@ -28,9 +28,13 @@ jobs:
           cmake --build build-client -j2
           ctest --test-dir build-client --output-on-failure
           python3 -c 'import subprocess; text = subprocess.check_output(["ldd", "build/libpulsaros.so"], text=True); assert "librte" not in text and "libdpdk" not in text'
+          python3 -c 'import subprocess; text = subprocess.check_output(["ldd", "build-client/pulsar"], text=True); assert "librte" not in text and "libdpdk" not in text'
       - name: Multi-application daemon acceptance
         run: |
           sudo unshare --net python3 tests/smoke_daemon.py "$PWD/build" --artifacts "$PWD/build/daemon-smoke"
+      - name: Live network administration acceptance
+        run: |
+          sudo unshare --net python3 tests/smoke_admin.py "$PWD/build" --artifacts "$PWD/build/admin-smoke"
       - name: Single and multiple interface smoke tests
         run: |
           sudo unshare --net python3 tests/smoke.py "$PWD/build/pulsarosd"
@@ -72,6 +76,17 @@ jobs:
             --artifacts "$PWD/build-sanitize/forwarding-smoke"
           sudo env ASAN_OPTIONS=detect_leaks=1 UBSAN_OPTIONS=halt_on_error=1 \
             unshare --net python3 tests/smoke_daemon.py "$PWD/build-sanitize" --artifacts "$PWD/build-sanitize/daemon-smoke"
+          sudo env ASAN_OPTIONS=detect_leaks=1 UBSAN_OPTIONS=halt_on_error=1 \
+            unshare --net python3 tests/smoke_admin.py "$PWD/build-sanitize" --artifacts "$PWD/build-sanitize/admin-smoke"
+      - name: Upload administrative evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: admin-smoke
+          path: |
+            build/admin-smoke
+            build-sanitize/admin-smoke
+          if-no-files-found: ignore
       - name: Upload daemon and unit evidence
         if: always()
         uses: actions/upload-artifact@v4
