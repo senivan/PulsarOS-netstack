@@ -68,6 +68,11 @@ int main(void)
     apply("route flush table 100"); assert(view.config.route_count==1);
     apply("addr del 10.0.0.2/24 dev eth0"); assert(view.config.route_count==1);
     apply("addr flush dev eth0"); assert(!view.config.route_count);
+    struct admin_request full={.group=ADM_ACL,.verb=ADM_APPLY,.count=NET_ACL_MAX};
+    for (unsigned i=0;i<NET_ACL_MAX;i++) full.acls[i].rule=(struct net_acl){.pref=i,.iif=NET_IIF_NONE};
+    assert(!admin_mutate(&view,&full,&next));view.config=next;
+    assert(!parse("acl add pref 1000 action accept"));assert(admin_mutate(&view,&request,&next)==-ENOSPC);
+    apply("acl flush");
     static struct app_runtime rt;
     rt.port_count=1;rt.ports[0]=view.links[0].port;
     rt.network=&view.config;
@@ -77,5 +82,18 @@ int main(void)
     assert(!neighbour_update(&rt,0,ip,&other));assert(!neighbour_lookup(&rt.neighbours,0,ip,&found));assert(!memcmp(&found,&mac,sizeof(mac)));
     assert(!neighbour_set(&rt,0,ip,&other,1));assert(!neighbour_delete(&rt,0,ip));assert(neighbour_lookup(&rt.neighbours,0,ip,&found)==-ENOENT);
     assert(neighbour_delete(&rt,0,ip)==-ENOENT);
+    for (unsigned i=1;i<=NEIGHBOUR_CAPACITY;i++) {
+        uint32_t key=htonl(0xc0000200u+i);
+        assert(!neighbour_set(&rt,0,key,&mac,0));
+    }
+    assert(neighbour_set(&rt,0,inet_addr("198.51.100.1"),&mac,0)==-ENOSPC);
+    assert(!neighbour_delete(&rt,0,htonl(0xc0000201u)));
+    for (unsigned i=2;i<=NEIGHBOUR_CAPACITY;i++) assert(!neighbour_lookup(&rt.neighbours,0,htonl(0xc0000200u+i),&found));
+    for (unsigned i=0;i<ADMIN_EVENT_MAX*2;i++) admin_event_emit(&rt,ADM_ROUTE,i,ADM_ADD);
+    assert(rt.events.sequence>ADMIN_EVENT_MAX*2);
+    for (unsigned i=0;i<ADMIN_EVENT_MAX;i++) {
+        uint64_t seq=rt.events.sequence-i;
+        assert(rt.events.entries[(seq-1)%ADMIN_EVENT_MAX].sequence==seq);
+    }
     return 0;
 }
