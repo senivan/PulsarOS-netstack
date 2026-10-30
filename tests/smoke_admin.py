@@ -14,7 +14,7 @@ import time
 from contextlib import ExitStack
 from pathlib import Path
 
-from scapy.all import Ether, IP, UDP, ICMP, get_if_hwaddr, srp1
+from scapy.all import ARP, Ether, IP, UDP, ICMP, get_if_hwaddr, srp1
 
 from daemon_helpers import Daemon
 from smoke import ip
@@ -279,6 +279,41 @@ s.close()
             os.chmod(admin, 0o600)
             code = "import socket,struct; s=socket.socket(socket.AF_UNIX); s.connect(%r); s.sendall(struct.pack('!16I',0x50534e53,1,1,1,0,0,0,0,0,0,0,0,0,0,0,0)); assert len(s.recv(64))==64" % daemon.path
             assert subprocess.run(['python3', '-c', code], preexec_fn=drop_privileges).returncode == 0
+        # A filtered monitor must report overwritten history even when no retained event matches.
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as filtered:
+            filtered.settimeout(5)
+            filtered.connect(admin)
+            values = [0] * 16
+            values[5] = 5  # route-only subscription
+            body = struct.pack('!20I', 11, 1, 1, 0, *values) + bytes(64)
+            filtered.sendall(struct.pack('!8I', 0x50534d47, 1, 901, len(body), 0, 0, 0, 0) + body)
+            ack = struct.unpack('!8I', read_exact(filtered, 32))
+            assert ack[3] == 0 and ack[4] == 0
+            frames = [bytes(Ether(src=mac, dst='ff:ff:ff:ff:ff:ff')/ARP(hwsrc=mac, psrc='192.0.2.99', pdst='192.0.2.2'))
+                      for mac in ('02:00:00:00:09:01', '02:00:00:00:09:02')]
+            with socket.socket(socket.AF_PACKET, socket.SOCK_RAW) as flood:
+                flood.bind(('ma-peer0', 0))
+                for index in range(5000):
+                    flood.send(frames[index % 2])
+            header = struct.unpack('!8I', read_exact(filtered, 32))
+            notices = [json.loads(line) for line in read_exact(filtered, header[3]).decode().splitlines()]
+            assert any(event['lost'] > 0 for event in notices), notices
+        cli('neigh', 'del', '192.0.2.99', 'dev', 'ma-host0')
+        # Exhausting slow administrative sessions does not block application traffic.
+        idle = []
+        try:
+            for _ in range(15):
+                connection = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+                connection.connect(admin)
+                idle.append(connection)
+            time.sleep(.1)
+            cli('status', ok=False)
+            udp_echo(9001)
+        finally:
+            for connection in idle:
+                connection.close()
+        time.sleep(.05)
+        assert cli('status')['items'][0]['state'] == 'running'
         assert daemon.process.poll() is None and all(p.poll() is None for p in (first, second, tcp))
         monitor.terminate()
         stdout, _ = monitor.communicate(timeout=5)
