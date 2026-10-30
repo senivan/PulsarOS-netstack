@@ -15,6 +15,7 @@ struct port_state *netif_by_dpdk_port(struct app_runtime *rt, uint16_t id)
 
 const struct port_state *netif_by_id(const struct app_runtime *rt, uint16_t id)
 {
+    if (id < rt->port_count && rt->ports[id].configured && rt->ports[id].id == id) return &rt->ports[id];
     for (uint16_t i = 0; i < rt->port_count; i++)
         if (rt->ports[i].configured && rt->ports[i].id == id) return &rt->ports[i];
     return NULL;
@@ -22,6 +23,13 @@ const struct port_state *netif_by_id(const struct app_runtime *rt, uint16_t id)
 
 int netif_is_local_ip(const struct app_runtime *rt, uint32_t ip_be)
 {
+    if (rt->network) {
+        for (unsigned i = 0; i < rt->network->address_count; i++) {
+            const struct net_address *a = &rt->network->addresses[i];
+            if (a->ip == ip_be && netif_by_id(rt, a->dev)) return 1;
+        }
+        return 0;
+    }
     for (uint16_t i = 0; i < rt->port_count; i++)
         if (rt->ports[i].configured && net_address_on(rt, rt->ports[i].id, ip_be)) return 1;
     return 0;
