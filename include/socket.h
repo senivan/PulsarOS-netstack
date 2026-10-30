@@ -22,7 +22,8 @@ struct ps_socket_entry {
 
 struct socket_subsystem {
     struct ps_socket_entry entries[PS_SOCKET_MAX];
-    unsigned capacity, next_fd;
+    unsigned capacity;
+    uint32_t generations[PS_SOCKET_MAX];
     uint16_t next_port;
 };
 

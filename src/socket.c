@@ -9,7 +9,6 @@ int socket_subsystem_init(struct app_runtime *rt)
     if (!rt) return -EINVAL;
     if (rt->sockets.capacity) return -EBUSY;
     memset(&rt->sockets, 0, sizeof(rt->sockets));
-    rt->sockets.next_fd = 1;
     rt->sockets.next_port = 49152;
     rt->sockets.capacity = PS_SOCKET_MAX;
     return 0;
@@ -22,11 +21,11 @@ void socket_subsystem_fini(struct app_runtime *rt)
 
 struct ps_socket_entry *socket_lookup(struct app_runtime *rt, ps_fd_t fd)
 {
-    for (unsigned i = 0; i < rt->sockets.capacity; i++) {
-        struct ps_socket_entry *s = &rt->sockets.entries[i];
-        if (s->allocated && s->fd == fd) return s;
-    }
-    return NULL;
+    if (fd <= 0) return NULL;
+    unsigned slot = (unsigned)(fd-1) % PS_SOCKET_MAX;
+    if (slot >= rt->sockets.capacity) return NULL;
+    struct ps_socket_entry *s = &rt->sockets.entries[slot];
+    return s->allocated && s->fd == fd ? s : NULL;
 }
 
 struct ps_socket_entry *socket_allocate(struct app_runtime *rt, int type)
@@ -34,11 +33,10 @@ struct ps_socket_entry *socket_allocate(struct app_runtime *rt, int type)
     for (unsigned i = 0; i < rt->sockets.capacity; i++) {
         struct ps_socket_entry *s = &rt->sockets.entries[i];
         if (s->allocated) continue;
-        unsigned fd;
-        do {
-            fd = rt->sockets.next_fd++;
-            if (rt->sockets.next_fd > INT_MAX) rt->sockets.next_fd = 1;
-        } while (socket_lookup(rt, (ps_fd_t)fd));
+        /* The slot is encoded in the handle; generations survive entry cleanup. */
+        uint32_t generation = rt->sockets.generations[i];
+        unsigned fd = generation * PS_SOCKET_MAX + i + 1;
+        rt->sockets.generations[i] = generation == (INT_MAX-i-1)/PS_SOCKET_MAX ? 0 : generation+1;
         memset(s, 0, sizeof(*s));
         s->fd = (ps_fd_t)fd;
         s->allocated = s->open = 1;
