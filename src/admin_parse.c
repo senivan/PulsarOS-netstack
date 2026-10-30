@@ -87,9 +87,10 @@ int admin_parse(int argc, char **argv, struct admin_request *r, char *error, siz
 {
     memset(r,0,sizeof(*r));
     if(!argc || !(r->group=(uint32_t)group(argv[0]))) goto invalid;
-    r->verb=ADM_SHOW; r->v[F_TABLE]=NET_TABLE_MAIN;
+    r->verb=ADM_SHOW;
     int i=1;
     if(i<argc && verb(argv[i])) r->verb=(uint32_t)verb(argv[i++]);
+    if(r->group==ADM_ROUTE && r->verb!=ADM_GET) r->v[F_TABLE]=NET_TABLE_MAIN;
     if(r->group==ADM_ACL && i<argc && !strcmp(argv[i],"stats")) { i++; r->flags|=ADMIN_STATS; }
     if(r->group==ADM_MONITOR) {
         if(r->verb!=ADM_SHOW) goto invalid;
@@ -186,7 +187,7 @@ int admin_parse(int argc, char **argv, struct admin_request *r, char *error, siz
     if(r->group==ADM_ADDR && r->verb!=ADM_SHOW && !*r->dev) goto invalid;
     if(r->group==ADM_LINK && r->verb!=ADM_SHOW && (r->verb!=ADM_SET||!*r->dev||!r->v[F_PORTS])) goto invalid;
     if(r->group==ADM_NEIGH && r->verb!=ADM_SHOW && (!*r->dev || ((r->verb==ADM_ADD||r->verb==ADM_REPLACE)&&(!have_mac||!have_nud)))) goto invalid;
-    if(r->group==ADM_ROUTE && r->verb!=ADM_SHOW && (!r->v[F_TABLE] || r->v[F_TABLE]==NET_TABLE_LOCAL)) goto invalid;
+    if(r->group==ADM_ROUTE && r->verb!=ADM_SHOW && r->verb!=ADM_GET && (!r->v[F_TABLE] || r->v[F_TABLE]==NET_TABLE_LOCAL)) goto invalid;
     if(r->group==ADM_ROUTE && (r->verb==ADM_ADD||r->verb==ADM_REPLACE) && !r->v[F_ACTION] && !*r->dev) goto invalid;
     if(r->group==ADM_RULE && ((r->verb==ADM_ADD && (!have_pref||(!have_lookup&&!have_action)||(have_lookup&&have_action))) || (r->verb==ADM_DEL&&!have_pref))) goto invalid;
     if(r->group==ADM_ACL && ((r->verb==ADM_ADD&&(!have_pref||!have_action)) || (r->verb==ADM_DEL&&!have_pref))) goto invalid;
