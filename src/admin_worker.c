@@ -117,9 +117,12 @@ int admin_worker_operation(struct app_runtime *rt, const struct admin_request *r
     if (r->group != ADM_NEIGH) return -EOPNOTSUPP;
     uint32_t ip = r->v[F_IP];
     if (r->verb == ADM_FLUSH) {
-        for (unsigned i = 0; i < NEIGHBOUR_CAPACITY; i++) {
+        for (unsigned i = 0; i < NEIGHBOUR_CAPACITY;) {
             struct neighbour_entry *e = &rt->neighbours.entries[i];
-            if (e->in_use && e->netif_id == (unsigned)dev) neighbour_delete(rt, dev, e->ip_be);
+            if (e->in_use && e->netif_id == (unsigned)dev) {
+                int rc = neighbour_delete(rt, dev, e->ip_be);
+                if (rc) return rc;
+            } else i++;
         }
         neighbour_cancel(rt, dev, 0);
         return 0;
