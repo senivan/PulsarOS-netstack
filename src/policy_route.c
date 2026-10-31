@@ -16,12 +16,26 @@ static enum drop_reason table_lookup(const struct app_runtime *rt, uint32_t dst,
 {
     const struct net_config *c = rt->network;
     const struct net_route *best = NULL;
-    for (unsigned i = 0; i < c->route_count; i++) {
-        const struct net_route *r = &c->routes[i];
-        const struct port_state *p = netif_by_id(rt, r->dev);
+    unsigned begin = 0;
+    if (c->routes_indexed) {
+        unsigned end = c->route_count;
+        while (begin < end) {
+            unsigned mid = begin + (end-begin)/2;
+            if (c->route_index[mid].table < table) begin = mid+1;
+            else end = mid;
+        }
+    }
+    for (unsigned i = begin; i < c->route_count; i++) {
+        if (c->routes_indexed && c->route_index[i].table != table) break;
+        const struct net_route *r = &c->routes[c->routes_indexed ? c->route_index[i].route : i];
         if (r->table != table || !net_match(dst, r->ip, r->prefix) ||
-            (!r->type && (!p || !p->started || p->admin_down))) continue;
-        if (!best || r->prefix > best->prefix) best = r;
+            (best && r->prefix <= best->prefix)) continue;
+        if (!r->type) {
+            const struct port_state *p = netif_by_id(rt, r->dev);
+            if (!p || !p->started || p->admin_down) continue;
+        }
+        best = r;
+        if (c->routes_indexed) break;
     }
     if (!best) return DROP_NO_ROUTE;
     *out = (struct route_result){ .table = table, .rule_pref = pref, .type = best->type,

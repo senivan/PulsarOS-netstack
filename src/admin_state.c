@@ -110,5 +110,5 @@ int admin_mutate(const struct admin_view *view, const struct admin_request *r, s
     } else return -EOPNOTSUPP;
     if (c->generation == UINT64_MAX) return -EOVERFLOW;
     c->generation++;
-    return net_config_validate(c, view->port_count);
+    return net_config_prepare(c, view->port_count);
 }
