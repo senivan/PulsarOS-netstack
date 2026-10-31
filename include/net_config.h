@@ -15,6 +15,7 @@ enum net_action { NET_UNICAST, NET_BLACKHOLE, NET_UNREACHABLE, NET_PROHIBIT };
 struct net_address { uint32_t ip, prefix, dev; };
 struct net_route { uint32_t ip, prefix, gateway, dev, table, type, connected; };
 struct net_rule { uint32_t pref, src, src_prefix, dst, dst_prefix, iif, table, type; };
+struct net_route_index { uint32_t table; uint16_t route; uint8_t prefix; };
 struct net_acl {
     uint32_t pref, src, src_prefix, dst, dst_prefix, iif, proto;
     uint32_t sport_min, sport_max, dport_min, dport_max, ports, drop;
@@ -25,6 +26,8 @@ struct net_config {
     uint32_t address_count, route_count, rule_count, acl_count, default_drop;
     struct net_address addresses[NET_ADDR_MAX];
     struct net_route routes[NET_ROUTE_MAX];
+    uint32_t routes_indexed;
+    struct net_route_index route_index[NET_ROUTE_MAX];
     struct net_rule rules[NET_RULE_MAX];
     struct net_acl acls[NET_ACL_MAX];
 };
@@ -39,6 +42,8 @@ uint32_t net_mask(uint32_t prefix);
 int net_match(uint32_t ip, uint32_t network, uint32_t prefix);
 int net_prefix_valid(uint32_t ip, uint32_t prefix);
 int net_unicast(uint32_t ip);
+/* Build candidate lookup indexes before publishing an immutable snapshot. */
+int net_config_prepare(struct net_config *, unsigned ports);
 int net_config_validate(const struct net_config *, unsigned ports);
 int net_connected_rebuild(struct net_config *);
 int net_acl_classify(const struct net_config *, const struct acl_key *);

@@ -9,6 +9,7 @@ int net_connected_rebuild(struct net_config *c)
 {
     if (c->address_count > NET_ADDR_MAX || c->route_count > NET_ROUTE_MAX) return -EINVAL;
     for (unsigned i = 0; i < c->address_count; i++) if (c->addresses[i].prefix > 32) return -EINVAL;
+    c->routes_indexed = 0;
     unsigned n = 0;
     for (unsigned i = 0; i < c->route_count; i++)
         if (!c->routes[i].connected) c->routes[n++] = c->routes[i];
@@ -79,6 +80,26 @@ int net_config_validate(const struct net_config *c, unsigned ports)
             a->dport_min > a->dport_max || a->sport_max > 65535 || a->dport_max > 65535 ||
             (i && c->acls[i-1].pref >= a->pref)) return -EINVAL;
     }
+    return 0;
+}
+
+static int route_order(const void *left, const void *right)
+{
+    const struct net_route_index *a = left, *b = right;
+    if (a->table != b->table) return (a->table > b->table) - (a->table < b->table);
+    if (a->prefix != b->prefix) return (b->prefix > a->prefix) - (b->prefix < a->prefix);
+    return (a->route > b->route) - (a->route < b->route);
+}
+
+int net_config_prepare(struct net_config *c, unsigned ports)
+{
+    c->routes_indexed = 0;
+    int rc = net_config_validate(c, ports);
+    if (rc) return rc;
+    for (unsigned i = 0; i < c->route_count; i++)
+        c->route_index[i] = (struct net_route_index){.table=c->routes[i].table, .route=i, .prefix=c->routes[i].prefix};
+    qsort(c->route_index, c->route_count, sizeof(c->route_index[0]), route_order);
+    c->routes_indexed = 1;
     return 0;
 }
 
@@ -155,7 +176,7 @@ int net_config_init(struct app_runtime *rt)
             .gateway = r->gateway_be, .dev = r->netif_id, .table = NET_TABLE_MAIN };
     }
     int rc = net_connected_rebuild(c);
-    if (!rc) rc = net_config_validate(c, rt->port_count);
+    if (!rc) rc = net_config_prepare(c, rt->port_count);
     if (rc) { free(c); return rc; }
     rt->network = c;
     return 0;
