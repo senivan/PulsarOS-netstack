@@ -84,9 +84,11 @@ static void main_table(void)
     r=(struct admin_request){.group=ADM_ROUTE,.verb=ADM_ADD};
     strcpy(r.dev,"eth0");r.v[F_TABLE]=NET_TABLE_MAIN;apply(&r);
     rt.network=&view.config;
-    for (unsigned phase=0;phase<2;phase++) {
-        if (phase) for (unsigned i=0;i<254;i++) {
-            r.v[F_IP]=htonl(0xc6120000u+(i<<8));r.v[F_PREFIX]=24;apply(&r);
+    const unsigned counts[]={2,8,32,256};
+    unsigned added=0;
+    for (unsigned phase=0;phase<sizeof(counts)/sizeof(counts[0]);phase++) {
+        while (view.config.route_count<counts[phase]) {
+            r.v[F_IP]=htonl(0xc6120000u+(added++<<8));r.v[F_PREFIX]=24;apply(&r);
         }
         struct route_result route;
         uint64_t sum=0,start=now();

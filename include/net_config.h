@@ -15,7 +15,7 @@ enum net_action { NET_UNICAST, NET_BLACKHOLE, NET_UNREACHABLE, NET_PROHIBIT };
 struct net_address { uint32_t ip, prefix, dev; };
 struct net_route { uint32_t ip, prefix, gateway, dev, table, type, connected; };
 struct net_rule { uint32_t pref, src, src_prefix, dst, dst_prefix, iif, table, type; };
-struct net_route_index { uint32_t table; uint16_t route; uint8_t prefix; };
+struct net_route_index { uint32_t table, ip, mask; uint16_t route; uint8_t prefix; };
 struct net_acl {
     uint32_t pref, src, src_prefix, dst, dst_prefix, iif, proto;
     uint32_t sport_min, sport_max, dport_min, dport_max, ports, drop;
