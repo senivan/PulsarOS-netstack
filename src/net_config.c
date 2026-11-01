@@ -96,8 +96,10 @@ int net_config_prepare(struct net_config *c, unsigned ports)
     c->routes_indexed = 0;
     int rc = net_config_validate(c, ports);
     if (rc) return rc;
+    if (c->route_count <= 2) return 0;
     for (unsigned i = 0; i < c->route_count; i++)
-        c->route_index[i] = (struct net_route_index){.table=c->routes[i].table, .route=i, .prefix=c->routes[i].prefix};
+        c->route_index[i] = (struct net_route_index){.table=c->routes[i].table, .ip=c->routes[i].ip,
+            .mask=net_mask(c->routes[i].prefix), .route=i, .prefix=c->routes[i].prefix};
     qsort(c->route_index, c->route_count, sizeof(c->route_index[0]), route_order);
     c->routes_indexed = 1;
     return 0;

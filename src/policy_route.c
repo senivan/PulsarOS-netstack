@@ -26,10 +26,17 @@ static enum drop_reason table_lookup(const struct app_runtime *rt, uint32_t dst,
         }
     }
     for (unsigned i = begin; i < c->route_count; i++) {
-        if (c->routes_indexed && c->route_index[i].table != table) break;
-        const struct net_route *r = &c->routes[c->routes_indexed ? c->route_index[i].route : i];
-        if (r->table != table || !net_match(dst, r->ip, r->prefix) ||
-            (best && r->prefix <= best->prefix)) continue;
+        const struct net_route *r;
+        if (c->routes_indexed) {
+            const struct net_route_index *index = &c->route_index[i];
+            if (index->table != table) break;
+            if ((dst & index->mask) != index->ip) continue;
+            r = &c->routes[index->route];
+        } else {
+            r = &c->routes[i];
+            if (r->table != table || !net_match(dst, r->ip, r->prefix) ||
+                (best && r->prefix <= best->prefix)) continue;
+        }
         if (!r->type) {
             const struct port_state *p = netif_by_id(rt, r->dev);
             if (!p || !p->started || p->admin_down) continue;
