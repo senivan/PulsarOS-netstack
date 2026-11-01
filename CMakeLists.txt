@@ -98,3 +98,8 @@ if(PULSAROS_BUILD_DAEMON)
     endforeach()
   endif()
 endif()
+
+option(PULSAROS_BUILD_BENCHMARKS "Build native Linux end-to-end benchmark tools" OFF)
+if(PULSAROS_BUILD_BENCHMARKS)
+  add_subdirectory(bench)
+endif()
