@@ -29,6 +29,8 @@ class Engine:
         self.base_connected = 2 if self.numbered else 1
         self.static_count = max(0, self.main_count - self.base_connected)
         self.destination_base = '198.18.0.1' if self.static_count else '198.51.100.1'
+        if case.group == 'route' and case.pattern == 'stable':
+            self.destination_base = '198.51.100.1'
         self.destination_count = self.static_count if case.pattern in ('multiple', 'random', 'worst') and self.static_count else 1
         self.stride = 256
         if case.neighbours > 1:
@@ -95,7 +97,7 @@ class Engine:
                 source = '192.0.2.0/24' if c.empty_tables or i == c.policies - 1 else '203.0.113.0/24'
                 self.network('rule', 'add', 'pref', str(i + 1), 'from', source, 'lookup', str(1000+i if c.empty_tables else 100))
         if c.addresses > 1:
-            for i in range(2, 64):
+            for i in range(2, c.addresses):
                 self.network('addr', 'add', f'192.0.2.{i}/24', 'dev', 'r0')
         self.acl()
         self.validate_configuration()

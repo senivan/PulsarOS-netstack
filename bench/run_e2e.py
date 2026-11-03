@@ -74,7 +74,7 @@ def main():
     parser.add_argument('--baseline-ref')
     parser.add_argument('--engines', default='current,linux,calibration')
     parser.add_argument('--select', default='.*', help='regular expression matching scenario names')
-    parser.add_argument('--seed', type=int, default=42)
+    parser.add_argument('--seed', type=int, default=42, help='scenario ordering seed; packet datasets use fixed seed 42')
     parser.add_argument('--no-profiling', action='store_true')
     parser.add_argument('--skip-build', action='store_true')
     parser.add_argument('--correctness-only', action='store_true', help='allow instrumented/debug builds; never performance results')
@@ -127,7 +127,8 @@ def main():
     rng.shuffle(other)
     cases = calibrations + other
     manifest = {'schema': 1, 'profile': args.profile, 'duration_requested': duration, 'repetitions': repetitions,
-                'warmup': warmup, 'seed': args.seed, 'engines': names, 'source': str(SOURCE), 'current_build': str(current),
+                'warmup': warmup, 'seed': args.seed, 'ordering_seed': args.seed, 'packet_seed': 42,
+                'engines': names, 'source': str(SOURCE), 'current_build': str(current),
                 'baseline_build': str(before) if before else None, 'baseline_ref': args.baseline_ref,
                 'cases': [c.data() for c in cases], 'unsupported': unsupported(), 'assignment': assignment,
                 'loss_threshold': .001, 'started_ns': time.monotonic_ns(), 'selector': args.select,
@@ -169,7 +170,7 @@ def main():
                             run_id += 100
                             if case.group == 'application':
                                 check = application_sample(engine, directory/'warmup', max(.3, warmup), run_id)
-                                if check['received'] == 0 and case.mode != 'connect':
+                                if check['received'] == 0:
                                     raise RuntimeError('application warmup delivered nothing')
                             elif case.cold:
                                 engine.network('neigh', 'flush', 'dev', 'r1')
