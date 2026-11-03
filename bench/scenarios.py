@@ -38,11 +38,11 @@ def matrix(profile):
                 Case('acl_drop', 'acl', rate=1000, acl=8, acl_pattern='drop')]
     for size in (60, 128, 512, 1514):
         cases.append(Case(f'calibration_{size}', 'calibration', size=size))
-        rates = (1000, 10000, 25000, 50000, 100000, 250000, 0) if profile == 'full' else (0,)
+        rates = (1000, 10000, 25000, 50000, 100000, 250000, 500000, 750000, 1000000, 0) if profile == 'full' else (0,)
         for rate in rates:
             cases.append(Case(f'forward_{size}_rate{rate}', size=size, rate=rate))
     if profile == 'standard':
-        for rate in (1000, 50000, 100000, 250000):
+        for rate in (1000, 50000, 100000, 250000, 500000, 750000, 1000000):
             cases.append(Case(f'forward_128_rate{rate}', rate=rate))
     for routes in ((1, 8, 32, 128, 256, 512, 1024) if profile == 'full' else (1, 8, 32, 128, 256)):
         patterns = ('stable', 'multiple', 'worst', 'random') if profile == 'full' else ('stable',)
@@ -67,12 +67,12 @@ def matrix(profile):
     for rate in (1000, 50000, 0):
         cases.append(Case(f'latency_rate{rate}', 'latency', rate=rate, routes=2, latency=True))
     for count in (1, 2, 4):
-        cases.append(Case(f'udp_{count}_rr', 'application', services=count))
-    cases += [Case('udp_receiver', 'application', mode='sink', rate=0),
-              Case('udp_addresses_64', 'application', mode='sink', addresses=64, rate=0)]
+        cases.append(Case(f'udp_{count}_rr', 'application', routes=2, services=count))
+    cases += [Case('udp_receiver', 'application', routes=2, mode='sink', rate=0),
+              Case('udp_addresses_64', 'application', routes=2, mode='sink', addresses=64, rate=0)]
     for mode in ('connect', 'short', 'rr', 'bulk'):
-        cases.append(Case(f'tcp_{mode}', 'application', kind='tcp', mode=mode, payload=4096 if mode == 'bulk' else 64))
-    cases.append(Case('tcp_bulk_4', 'application', kind='tcp', mode='bulk', connections=4, payload=4096))
+        cases.append(Case(f'tcp_{mode}', 'application', routes=2, kind='tcp', mode=mode, payload=4096 if mode == 'bulk' else 64))
+    cases.append(Case('tcp_bulk_4', 'application', routes=2, kind='tcp', mode='bulk', connections=4, payload=4096))
     cases.append(Case('route_change', 'correctness', routes=8, rate=1000, change=True))
     return cases
 
