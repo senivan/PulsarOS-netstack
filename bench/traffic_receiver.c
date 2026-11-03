@@ -92,8 +92,13 @@ int main(int argc, char **argv)
             perror("pcap");
             return 1;
         }
-        uint32_t header[6] = {0xa1b2c3d4, 0x00040002, 0, 0, 65535, 1};
-        if (fwrite(header, sizeof(header), 1, pcap) != 1)
+        struct {
+            uint32_t magic;
+            uint16_t major, minor;
+            uint32_t zone, accuracy, snaplen, link;
+        } header = {0xa1b2c3d4, 2, 4, 0, 0, 65535, 1};
+        _Static_assert(sizeof(header) == 24, "pcap header size");
+        if (fwrite(&header, sizeof(header), 1, pcap) != 1)
             return 1;
     }
     uint8_t buffers[BENCH_BATCH][2048];

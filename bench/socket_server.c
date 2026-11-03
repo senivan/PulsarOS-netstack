@@ -160,9 +160,12 @@ int main(int argc, char **argv)
                 return 2;
             sink = !strcmp(optarg, "sink");
             break;
-        case 'p':
-            port = atoi(optarg);
-            break;
+        case 'p': {
+            uint64_t number = 0;
+            if (unsigned_parse(optarg, 65535, &number))
+                return 2;
+            port = (int)number;
+        } break;
         default:
             return 2;
         }

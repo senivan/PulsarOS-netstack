@@ -42,3 +42,15 @@ void metrics_write(const struct options *, const struct metrics *);
 void sleep_until(uint64_t);
 void payload_fill(uint8_t *, size_t, uint32_t run, uint64_t sequence, uint32_t seed);
 int payload_valid(const uint8_t *, size_t, uint32_t run, uint32_t seed, uint64_t *sequence);
+
+int unsigned_parse(const char *, uint64_t, uint64_t *);
+int duration_parse(const char *, double *);
+
+static inline uint8_t stream_byte(uint64_t offset)
+{
+    uint64_t word = (offset >> 3) + UINT64_C(0x9e3779b97f4a7c15);
+    word = (word ^ (word >> 30)) * UINT64_C(0xbf58476d1ce4e5b9);
+    word = (word ^ (word >> 27)) * UINT64_C(0x94d049bb133111eb);
+    word ^= word >> 31;
+    return (uint8_t)(word >> ((offset & 7) * 8));
+}

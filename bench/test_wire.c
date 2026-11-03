@@ -6,6 +6,19 @@
 
 int main(void)
 {
+    uint64_t number;
+    double duration;
+    assert(unsigned_parse("123", 123, &number) == 0 && number == 123);
+    assert(unsigned_parse("124", 123, &number) == -1);
+    assert(unsigned_parse("-1", UINT64_MAX, &number) == -1);
+    assert(unsigned_parse("1junk", UINT64_MAX, &number) == -1);
+    assert(unsigned_parse("18446744073709551616", UINT64_MAX, &number) == -1);
+    assert(duration_parse("10", &duration) == 0 && duration == 10);
+    assert(duration_parse("nan", &duration) == -1);
+    assert(duration_parse("inf", &duration) == -1);
+    assert(duration_parse("-1", &duration) == -1);
+    assert(duration_parse("", &duration) == -1);
+    assert(duration_parse("1junk", &duration) == -1);
     struct options o = {.frame_size = 128,
                         .source_port = 20000,
                         .destination_port = 9000,
@@ -33,6 +46,11 @@ int main(void)
                 copy[size - 1] ^= 1;
                 assert(packet_validate(copy, size, &o, &decoded) == -1);
                 assert(packet_validate(bytes + 1, size - 1, &o, &decoded) == -1);
+                memcpy(copy, bytes + 1, size);
+                copy[42] ^= 1;
+                assert(packet_validate(copy, size, &o, &decoded) == -1);
+                for (unsigned short_length = 0; short_length < 58; short_length++)
+                    assert(packet_validate(bytes + 1, short_length, &o, &decoded) <= 0);
                 bytes[1 + 46] ^= 1;
                 assert(packet_validate(bytes + 1, size, &o, &decoded) == 2);
             }

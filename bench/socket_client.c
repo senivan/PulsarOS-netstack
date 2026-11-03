@@ -4,6 +4,7 @@
 #include <fcntl.h>
 #include <getopt.h>
 #include <inttypes.h>
+#include <limits.h>
 #include <netinet/tcp.h>
 #include <poll.h>
 #include <signal.h>
@@ -110,6 +111,9 @@ int main(int argc, char **argv)
                                          {"run", 1, 0, 'r'},         {0, 0, 0, 0}};
     int c;
     while ((c = getopt_long(argc, argv, "", opts, NULL)) != -1) {
+        uint64_t number = 0;
+        if (strchr("pcbr", c) && unsigned_parse(optarg, INT_MAX, &number))
+            return 2;
         switch (c) {
         case 'a':
             address = optarg;
@@ -126,25 +130,26 @@ int main(int argc, char **argv)
             mode = optarg;
             break;
         case 'p':
-            port = atoi(optarg);
+            port = (int)number;
             break;
         case 'd':
-            duration = atof(optarg);
+            if (duration_parse(optarg, &duration))
+                return 2;
             break;
         case 'c':
-            connections = atoi(optarg);
+            connections = (int)number;
             break;
         case 'b':
-            bytes = atoi(optarg);
+            bytes = (int)number;
             break;
         case 'r':
-            run = (uint32_t)strtoul(optarg, NULL, 10);
+            run = (uint32_t)number;
             break;
         default:
             return 2;
         }
     }
-    if (optind != argc || !address || !output || connections < 1 || connections > 32 ||
+    if (optind != argc || !address || !output || !run || connections < 1 || connections > 32 ||
         bytes < 16 || bytes > 65536 || duration <= 0 || duration > 3600 || port < 1 ||
         port > 65535 || (!tcp && bytes > 1472) ||
         (strcmp(mode, "rr") && strcmp(mode, "bulk") && strcmp(mode, "connect") &&
@@ -245,7 +250,7 @@ int main(int argc, char **argv)
                     if (n > (size_t)bytes)
                         n = (size_t)bytes;
                     for (size_t j = 0; j < n; j++)
-                        sent[j] = (uint8_t)((p->sent + j) * 17 + 42);
+                        sent[j] = stream_byte(p->sent + j);
                     ssize_t wrote = send(p->fd, sent, n, MSG_NOSIGNAL);
                     if (wrote > 0) {
                         p->sent += (uint64_t)wrote;
@@ -259,7 +264,7 @@ int main(int argc, char **argv)
                     ssize_t n = recv(p->fd, received, (size_t)bytes, 0);
                     if (n > 0) {
                         for (ssize_t j = 0; j < n; j++)
-                            if (received[j] != (uint8_t)((p->received + (uint64_t)j) * 17 + 42))
+                            if (received[j] != stream_byte(p->received + (uint64_t)j))
                                 invalid++;
                         p->received += (uint64_t)n;
                         delivered += (uint64_t)n;

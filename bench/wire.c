@@ -107,7 +107,7 @@ void packet_build(uint8_t *b, const struct options *o, uint64_t seq)
     write16(ip + 2, o->frame_size - 14);
     write16(ip + 4, (uint16_t)seq);
     write16(ip + 6, 0x4000);
-    ip[8] = 64;
+    ip[8] = (uint8_t)o->ttl;
     ip[9] = 17;
     memcpy(ip + 12, &o->source_ip, 4);
     uint32_t dst = destination(o, seq);
@@ -127,11 +127,15 @@ void packet_build(uint8_t *b, const struct options *o, uint64_t seq)
 }
 int packet_validate(const uint8_t *b, size_t n, const struct options *o, uint64_t *seq)
 {
-    if (n < 58 || read16(b + 12) != 0x0800)
+    if (n < 14 || read16(b + 12) != 0x0800)
         return 0;
+    if (n < 34)
+        return -1;
     const uint8_t *ip = b + 14, *udp = b + 34, *payload = b + 42;
-    if (ip[9] != 17 || read32(payload) != BENCH_MAGIC)
-        return 0;
+    if (ip[9] != 17)
+        return n >= 58 && read32(payload) == BENCH_MAGIC ? -1 : 0;
+    if (n < 58 || read32(payload) != BENCH_MAGIC)
+        return -1;
     if (read32(payload + 4) != o->run)
         return 2;
     *seq = read64(payload + 8);
@@ -149,7 +153,7 @@ int packet_validate(const uint8_t *b, size_t n, const struct options *o, uint64_
             return -1;
     return 1;
 }
-static int integer(const char *s, uint64_t max, uint64_t *v)
+int unsigned_parse(const char *s, uint64_t max, uint64_t *v)
 {
     if (!*s)
         return -1;
@@ -162,6 +166,16 @@ static int integer(const char *s, uint64_t max, uint64_t *v)
     if (errno || *end || n > max)
         return -1;
     *v = n;
+    return 0;
+}
+int duration_parse(const char *s, double *value)
+{
+    char *end;
+    errno = 0;
+    double result = strtod(s, &end);
+    if (errno || end == s || *end || !(result > 0) || result > 3600)
+        return -1;
+    *value = result;
     return 0;
 }
 static int mac(const char *s, uint8_t *out)
@@ -220,7 +234,7 @@ int options_parse(int argc, char **argv, struct options *o)
     int c;
     while ((c = getopt_long(argc, argv, "", opts, NULL)) != -1) {
         uint64_t value = 0;
-        if (strchr("zrfnSReabTlPDF", c) && integer(optarg, UINT32_MAX, &value))
+        if (strchr("zrfnSReabTlPDF", c) && unsigned_parse(optarg, UINT32_MAX, &value))
             return -1;
         switch (c) {
         case 'i':
@@ -310,14 +324,10 @@ int options_parse(int argc, char **argv, struct options *o)
             else if (strcmp(optarg, "sequential"))
                 return -1;
             break;
-        case 't': {
-            char *end;
-            errno = 0;
-            o->duration = strtod(optarg, &end);
-            if (errno || *end || !(o->duration > 0) || o->duration > 3600)
+        case 't':
+            if (duration_parse(optarg, &o->duration))
                 return -1;
             break;
-        }
         default:
             return -1;
         }
