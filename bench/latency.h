@@ -4,7 +4,7 @@
 #include <stdlib.h>
 #define LATENCY_CAPACITY 1000000
 struct latency {
-    uint64_t *values, count, total, random;
+    uint64_t *values, count, total, random, maximum;
 };
 static inline void latency_add(struct latency *s, uint64_t value)
 {
@@ -15,6 +15,8 @@ static inline void latency_add(struct latency *s, uint64_t value)
         s->random = 42;
     }
     s->total++;
+    if (value > s->maximum)
+        s->maximum = value;
     if (s->count < LATENCY_CAPACITY)
         s->values[s->count++] = value;
     else {
@@ -46,5 +48,5 @@ static inline void latency_write(FILE *f, struct latency *s)
         fprintf(f, "\"p999_us\":%.3f,", s->values[(s->count - 1) * 999 / 1000] / 1e3);
     else
         fputs("\"p999_us\":null,", f);
-    fprintf(f, "\"maximum_us\":%.3f", s->values[s->count - 1] / 1e3);
+    fprintf(f, "\"maximum_us\":%.3f", s->maximum / 1e3);
 }
