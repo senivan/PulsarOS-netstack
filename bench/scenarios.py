@@ -63,16 +63,17 @@ def matrix(profile):
         cases.append(Case(f'neighbours_{count}', 'neighbour', neighbours=count))
     cases += [Case('neighbour_cold', 'neighbour', rate=100, cold=True),
               Case('neighbour_unresolved', 'neighbour', routes=2, rate=10, unresolved=True),
+              Case('addresses_2_forward', 'address', addresses=2, routes=2),
               Case('addresses_64_forward', 'address', addresses=64, routes=2)]
     for rate in (1000, 50000, 0):
         cases.append(Case(f'latency_rate{rate}', 'latency', rate=rate, routes=2, latency=True))
     for count in (1, 2, 4):
-        cases.append(Case(f'udp_{count}_rr', 'application', routes=2, services=count))
-    cases += [Case('udp_receiver', 'application', routes=2, mode='sink', rate=0),
+        cases.append(Case(f'udp_{count}_rr', 'application', routes=2, addresses=2, services=count))
+    cases += [Case('udp_receiver', 'application', routes=2, addresses=2, mode='sink', rate=0),
               Case('udp_addresses_64', 'application', routes=2, mode='sink', addresses=64, rate=0)]
     for mode in ('connect', 'short', 'rr', 'bulk'):
-        cases.append(Case(f'tcp_{mode}', 'application', routes=2, kind='tcp', mode=mode, payload=4096 if mode == 'bulk' else 64))
-    cases.append(Case('tcp_bulk_4', 'application', routes=2, kind='tcp', mode='bulk', connections=4, payload=4096))
+        cases.append(Case(f'tcp_{mode}', 'application', routes=2, addresses=2, kind='tcp', mode=mode, payload=4096 if mode == 'bulk' else 64))
+    cases.append(Case('tcp_bulk_4', 'application', routes=2, addresses=2, kind='tcp', mode='bulk', connections=4, payload=4096))
     cases.append(Case('route_change', 'correctness', routes=8, rate=1000, change=True))
     return cases
 

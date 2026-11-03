@@ -110,16 +110,19 @@ def packet_sample(engine, directory, duration, rate, run_id, verify=False, profi
     before = engine.counters()
     cpu_before = cpu_snapshot(engine)
     events = []
+    commands = []
     try:
         args = packet_args(engine, run_id, duration, rate, directory, receive=True)
         capture = directory / 'verification.pcap'
         if verify:
             args += ['--pcap', str(capture)]
-        rx = engine.topology.sink.start([str(engine.tools/'bench-traffic-receiver'), *args], cpu=engine.cpus['receiver'], stdout=receiver_log, stderr=receiver_log)
+        commands.append([str(engine.tools/'bench-traffic-receiver'), *args])
+        rx = engine.topology.sink.start(commands[-1], cpu=engine.cpus['receiver'], stdout=receiver_log, stderr=receiver_log)
         wait_ready(rx, receiver_log.name)
         measured_duration = duration + .4 if c.latency else duration
         args = packet_args(engine, run_id, measured_duration, rate, directory)
-        tx = engine.topology.source.start([str(engine.tools/'bench-traffic-generator'), *args], cpu=engine.cpus['generator'], stdout=generator_log, stderr=generator_log)
+        commands.append([str(engine.tools/'bench-traffic-generator'), *args])
+        tx = engine.topology.source.start(commands[-1], cpu=engine.cpus['generator'], stdout=generator_log, stderr=generator_log)
         if profiling and engine.pulsar:
             profile_log = (directory/'perf.log').open('w')
             profiler = subprocess.Popen(['perf', 'record', '-e', 'cpu-clock', '-F', '199', '--call-graph', 'fp', '-p', str(engine.process.pid),
@@ -127,7 +130,8 @@ def packet_sample(engine, directory, duration, rate, run_id, verify=False, profi
         if c.latency:
             time.sleep(.15)
             args = packet_args(engine, run_id+1000000000, duration, 200, directory, probe=True)
-            probe = engine.topology.source.start([str(engine.tools/'bench-traffic-probe'), *args], cpu=engine.cpus['probe'], stdout=generator_log, stderr=generator_log)
+            commands.append([str(engine.tools/'bench-traffic-probe'), *args])
+            probe = engine.topology.source.start(commands[-1], cpu=engine.cpus['probe'], stdout=generator_log, stderr=generator_log)
         if c.change:
             time.sleep(duration/2)
             engine.network('route', 'add', '198.19.0.0/24', 'via', '198.51.100.1', 'dev', 'r1')
@@ -180,11 +184,13 @@ def packet_sample(engine, directory, duration, rate, run_id, verify=False, profi
                   'receiver_cpu_seconds': received['user_seconds']+received['system_seconds'],
                   'receiver_kernel_drops': received['kernel_drops'], 'cpu': cpu,
                   'metric_value': received['unique']/seconds, 'metric_unit': 'packets/s',
+                  'run_id': run_id, 'packet_seed': 42,
                   'valid': True, 'configuration': c.data(), 'forwarding_witness': witness, 'pcap': pcap,
                   'events': events, 'path': str(directory), 'tx': sent, 'rx': received}
         if probe:
             result['latency'] = read_json(directory/'probe.json')
         save(directory/'counters.json', {'before': before, 'after': after})
+        save(directory/'endpoint-commands.json', commands)
         save(directory/'cpu.json', {'before': cpu_before, 'after': cpu_after, 'delta': cpu})
         save(directory/'sample.json', result)
         if profiler:
@@ -217,6 +223,7 @@ def application_sample(engine, directory, duration, run_id):
     counters_before = engine.counters()
     cpu_before = cpu_snapshot(engine)
     processes, streams = [], []
+    commands = []
     try:
         for index in range(c.services):
             output = directory/f'client-{index}.json'
@@ -233,6 +240,7 @@ def application_sample(engine, directory, duration, run_id):
                         '--connections', str(c.connections), '--bytes', str(c.payload), '--run', str(run_id+index)]
                 process = engine.topology.source.start(args, cpu=engine.cpus['generator'], stdout=log, stderr=log)
             processes.append((process, output))
+            commands.append(process.args)
         for process, _ in processes:
             if process.wait(timeout=duration+20):
                 raise RuntimeError('application endpoint failed')
@@ -276,6 +284,8 @@ def application_sample(engine, directory, duration, run_id):
                   'metric_value': received_bytes*8/seconds/1e6 if c.kind == 'tcp' and c.mode == 'bulk' else delivered/seconds,
                   'metric_unit': 'Mbit/s' if c.kind == 'tcp' and c.mode == 'bulk' else ('connections/s' if c.mode == 'connect' else ('datagrams/s' if c.mode == 'sink' else 'requests/s')),
                   'path': str(directory)}
+        result['run_id'] = run_id
+        result['packet_seed'] = 42
         if c.kind == 'tcp':
             result.pop('delivered_pps', None)
         if c.kind == 'udp':
@@ -284,6 +294,7 @@ def application_sample(engine, directory, duration, run_id):
         save(directory/'cpu.json', {'before': cpu_before, 'after': cpu_after})
         save(directory/'server-counters.json', {'before': server_before, 'after': server_after, 'delta': delta})
         save(directory/'sample.json', result)
+        save(directory/'endpoint-commands.json', commands)
         return result
     finally:
         for process, _ in processes:
