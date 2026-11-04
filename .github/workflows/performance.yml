@@ -1,0 +1,83 @@
+name: End-to-end performance
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: performance-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  benchmark:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential cmake pkg-config libdpdk-dev python3-scapy python3-matplotlib iproute2 ethtool nftables linux-tools-common linux-tools-generic
+      - name: Build release benchmark tools
+        run: |
+          cmake -S . -B build-perf -DCMAKE_BUILD_TYPE=Release -DPULSAROS_BUILD_BENCHMARKS=ON \
+            -DCMAKE_C_FLAGS_RELEASE="-O3 -DNDEBUG -g -fno-omit-frame-pointer"
+          cmake --build build-perf -j2
+          ctest --test-dir build-perf --output-on-failure
+          python3 bench/test_analysis.py
+      - name: Select historical comparison
+        env:
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          PUSH_BASE: ${{ github.event.before }}
+        run: |
+          baseline="$PR_BASE"
+          if [ -z "$baseline" ]; then baseline="$PUSH_BASE"; fi
+          if [ -z "$baseline" ] || ! git cat-file -e "$baseline^{commit}" 2>/dev/null; then
+            baseline=$(git rev-parse HEAD^)
+          fi
+          echo "BENCH_BASELINE=$baseline" >> "$GITHUB_ENV"
+      - name: Endpoint verification and quick acceptance
+        run: |
+          sudo python3 bench/test_endpoints.py --build "$PWD/build-perf" --output "$PWD/bench/results/endpoint-tests"
+          sudo python3 bench/run_e2e.py --profile quick --build "$PWD/build-perf" --skip-build \
+            --output "$PWD/bench/results/quick"
+      - name: Paired regression measurements
+        run: |
+          sudo python3 bench/run_e2e.py --profile standard --build "$PWD/build-perf" --skip-build \
+            --baseline-ref "$BENCH_BASELINE" --duration 3 --repetitions 7 --warmup .5 --no-profiling \
+            --engines current,calibration --fail-on-regression --regression-threshold .20 \
+            --select '^(calibration_128|forward_128_rate0|route_256_stable|policy_32_empty|acl_128_miss|udp_1_rr|tcp_bulk)$' \
+            --output "$PWD/bench/results/ci"
+      - name: Attach evidence
+        id: artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: performance-${{ github.sha }}
+          retention-days: 30
+          path: |
+            bench/results/**
+            !bench/results/**/baseline-source/**
+            !bench/results/**/baseline-build/**
+            !bench/results/**/perf.data
+          if-no-files-found: warn
+      - name: Show report
+        if: always()
+        env:
+          ARTIFACT_URL: ${{ steps.artifact.outputs.artifact-url }}
+        run: |
+          echo "## End-to-end performance evidence" >> "$GITHUB_STEP_SUMMARY"
+          echo "[Download reports, plots, raw samples and logs]($ARTIFACT_URL)" >> "$GITHUB_STEP_SUMMARY"
+          echo "Shared hosted runner, 3-second exploratory samples; not a hardware throughput certification." >> "$GITHUB_STEP_SUMMARY"
+          if [ -f bench/results/ci/report.md ]; then
+            sed '/^!\[/d' bench/results/ci/report.md >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "No valid performance report was produced. Inspect the failed step and attached startup/environment evidence." >> "$GITHUB_STEP_SUMMARY"
+          fi
