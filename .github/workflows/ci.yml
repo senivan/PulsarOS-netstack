@@ -16,10 +16,10 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential cmake pkg-config libdpdk-dev python3-scapy iproute2 ethtool
+          sudo apt-get install -y build-essential cmake pkg-config libdpdk-dev python3-scapy iproute2 ethtool nftables
       - name: Build and test
         run: |
-          cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug -DPULSAROS_BUILD_BENCHMARKS=ON
           cmake --build build -j2
           ctest --test-dir build --output-on-failure --output-junit "$PWD/build/unit-tests.xml"
       - name: DPDK-free client build
@@ -54,7 +54,7 @@ jobs:
           ASAN_OPTIONS: detect_leaks=1
           UBSAN_OPTIONS: halt_on_error=1
         run: |
-          cmake -S . -B build-sanitize -DCMAKE_BUILD_TYPE=Debug \
+          cmake -S . -B build-sanitize -DCMAKE_BUILD_TYPE=Debug -DPULSAROS_BUILD_BENCHMARKS=ON \
             -DCMAKE_C_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer" \
             -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=address,undefined" \
             -DCMAKE_SHARED_LINKER_FLAGS="-fsanitize=address,undefined"
@@ -78,6 +78,23 @@ jobs:
             unshare --net python3 tests/smoke_daemon.py "$PWD/build-sanitize" --artifacts "$PWD/build-sanitize/daemon-smoke"
           sudo env ASAN_OPTIONS=detect_leaks=1 UBSAN_OPTIONS=halt_on_error=1 \
             unshare --net python3 tests/smoke_admin.py "$PWD/build-sanitize" --artifacts "$PWD/build-sanitize/admin-smoke"
+      - name: Benchmark verifier and sanitized end-to-end acceptance
+        run: |
+          python3 bench/test_analysis.py
+          sudo env ASAN_OPTIONS=detect_leaks=1 UBSAN_OPTIONS=halt_on_error=1 \
+            python3 bench/test_endpoints.py --build "$PWD/build-sanitize" --output "$PWD/build-sanitize/benchmark-endpoints"
+          sudo env ASAN_OPTIONS=detect_leaks=1 UBSAN_OPTIONS=halt_on_error=1 \
+            python3 bench/run_e2e.py --profile quick --build "$PWD/build-sanitize" --skip-build \
+              --correctness-only --output "$PWD/build-sanitize/benchmark-quick"
+      - name: Upload benchmark correctness evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-correctness
+          path: |
+            build-sanitize/benchmark-endpoints
+            build-sanitize/benchmark-quick
+          if-no-files-found: ignore
       - name: Upload administrative evidence
         if: always()
         uses: actions/upload-artifact@v4
