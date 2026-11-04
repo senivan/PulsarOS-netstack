@@ -32,7 +32,7 @@ def publish(name, source, destination):
               'loss_fraction','receiver_kernel_drops','application_goodput_mbps','delivered_bytes','cpu_seconds',
               'sender_cpu_seconds','receiver_cpu_seconds','valid')
     with (output/'samples.csv').open('w',newline='') as stream:
-        writer=csv.DictWriter(stream,fields)
+        writer=csv.DictWriter(stream,fields,lineterminator="\n")
         writer.writeheader()
         for line in (source/'raw_samples.jsonl').read_text().splitlines():
             row=json.loads(line)

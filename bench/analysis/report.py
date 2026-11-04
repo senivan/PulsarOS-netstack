@@ -20,7 +20,7 @@ def dump_csv(path, rows):
         return
     keys = list(dict.fromkeys(key for row in rows for key in row))
     with path.open('w', newline='') as stream:
-        writer = csv.DictWriter(stream, keys)
+        writer = csv.DictWriter(stream, keys, lineterminator="\n")
         writer.writeheader()
         writer.writerows(rows)
 
