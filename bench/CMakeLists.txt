@@ -1,3 +1,6 @@
+if(NOT CMAKE_SYSTEM_NAME STREQUAL "Linux")
+  message(FATAL_ERROR "End-to-end benchmark tools require Linux AF_PACKET; use bench/Dockerfile")
+endif()
 add_library(bench-wire STATIC wire.c)
 target_include_directories(bench-wire PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_compile_options(bench-wire PRIVATE -Wall -Wextra -Wpedantic -Werror)
