@@ -167,7 +167,7 @@ def plots(directory, groups, summary):
                 ax.plot(*zip(*rows), marker='o', label=engine+' '+percentile[:-3])
                 count += 1
     if count:
-        ax.set(xlabel='Actual background offered Mpps', ylabel='Round trip microseconds', title='Raw UDP RTT including virtual I/O and scheduling')
+        ax.set(xlabel='Actual background offered Mpps', ylabel='Successful round trip microseconds', title='UDP RTT; timeouts separate in raw data')
         ax.legend(); ax.grid(alpha=.25); fig.tight_layout()
         fig.savefig(output/'latency.png', dpi=140); fig.savefig(output/'latency.svg')
         generated.append('latency')
@@ -240,7 +240,7 @@ def analyze(directory, threshold=.20):
             for i,p in enumerate(probes):
                 if 'p50_us' in p:
                     latency.append({'case':case,'engine':engine,'repetition':r['repetition'],'client':i,
-                                    **{k:p.get(k) for k in ('latency_samples','p50_us','p90_us','p99_us','p999_us','maximum_us','sent','received')}})
+                                    **{k:p.get(k) for k in ('latency_samples','p50_us','p90_us','p99_us','p999_us','maximum_us','sent','received','failures')}})
     changes = regressions(groups,summary,threshold)
     figures = plots(directory,groups,summary) if not manifest.get('correctness_only') else {'omitted':'instrumented correctness run'}
     result = {'schema':2,'scenarios':summary,'regressions':changes,'plots':figures,'research_answers':answers(summary),

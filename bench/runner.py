@@ -278,6 +278,7 @@ def application_sample(engine, directory, duration, run_id):
         result = {'schema': 1, 'case': c.name, 'engine': engine.name, 'group': 'application', 'configuration': c.data(),
                   'valid': True, 'measurement_seconds': seconds, 'delivered_pps': delivered/seconds,
                   'application_goodput_mbps': received_bytes*8/seconds/1e6, 'received': delivered, 'sent': sent,
+                  'delivered_bytes': received_bytes,
                   'loss_fraction': (sent-delivered)/sent if c.kind == 'udp' and sent else 0,
                   'connection_failures': failures, 'handshakes': sum(v.get('handshakes', 0) for v in values),
                   'cpu': cpu_delta(cpu_before, cpu_after), 'clients': values, 'server_delta': delta,
