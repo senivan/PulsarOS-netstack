@@ -15,6 +15,10 @@ def main():
     parser.add_argument('--output', type=Path, required=True)
     args = parser.parse_args()
     args.output.mkdir(parents=True, exist_ok=True)
+    binary = args.build.resolve()/'bench/bench-traffic-generator'
+    for option, value in (('--sport','4294967295'),('--dport','4294967295'),('--duration','nan'),('--size','59'),('--flows','0')):
+        result = subprocess.run([str(binary),'--interface','no-bench-device','--output',str(args.output/'invalid.json'),option,value],capture_output=True,timeout=3)
+        assert result.returncode == 2, (option,result.returncode,result.stderr)
     topology = Topology(args.output, direct=True)
     receiver = None
     try:
