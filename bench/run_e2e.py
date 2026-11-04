@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Run real native traffic through isolated PulsarOS/Linux networking paths."""
 import argparse
+import hashlib
 import json
 import os
 import random
@@ -8,6 +9,7 @@ import re
 import signal
 import subprocess
 import sys
+import tarfile
 import time
 import traceback
 from pathlib import Path
@@ -107,6 +109,16 @@ def main():
     if not (current/'bench/bench-traffic-generator').exists():
         parser.error('native benchmark tools are missing; enable PULSAROS_BUILD_BENCHMARKS')
     environment = discover(SOURCE, current)
+    archive_path = output/'source-snapshot.tar.gz'
+    with tarfile.open(archive_path, 'w:gz') as archive:
+        def source_filter(info):
+            return None if set(Path(info.name).parts) & {'results', 'measurements', '__pycache__'} else info
+        for name in ('CMakeLists.txt', 'include', 'src', 'examples', 'tests', 'bench'):
+            archive.add(SOURCE/name, arcname=name, filter=source_filter)
+    environment['source_archive_sha256'] = hashlib.sha256(archive_path.read_bytes()).hexdigest()
+    binaries = [current/'pulsarosd', current/'libpulsaros.so', *sorted((current/'bench').glob('bench-*'))]
+    environment['binary_sha256'] = {str(path): hashlib.sha256(path.read_bytes()).hexdigest()
+                                    for path in binaries if path.is_file()}
     environment['original_allowed_cpus'] = cpus
     environment['assignment'] = assignment
     save(output/'environment.json', environment)
