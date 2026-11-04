@@ -334,7 +334,8 @@ int options_parse(int argc, char **argv, struct options *o)
     }
     if (optind != argc || !*o->interface || !*o->output || o->frame_size < 60 ||
         o->frame_size > 1514 || !o->flows || o->flows > 4096 || !o->destinations ||
-        o->destinations > 4096 || o->source_port + o->flows > 65536 ||
+        o->destinations > 4096 || o->source_port > 65535 || o->destination_port > 65535 ||
+        o->source_port + o->flows > 65536 ||
         o->destination_port + o->flows > 65536 || !o->sequence_limit ||
         o->sequence_limit > 256000000 || o->ttl > 255 || !o->run ||
         (o->drop_mod && o->drop_rem >= o->drop_mod))
