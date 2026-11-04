@@ -1,0 +1,591 @@
+{
+  "schema": 1,
+  "cohorts_not_pooled": true,
+  "optimized_runtime": "a6e5b008bad3ee1110b2dec6fc21a9dff5d5a68e",
+  "historical_runtime": "21374accc6cfa3c669b865fee604f06d4ba407f4",
+  "full_local_evidence": "bench/results/2026-11-05",
+  "runs": {
+    "full": {
+      "samples": 1442,
+      "duration": 1.0,
+      "repetitions": 7,
+      "seed": 42,
+      "assignment": {
+        "applications": [
+          4,
+          5,
+          6,
+          7
+        ],
+        "control": 1,
+        "dataplane": 0,
+        "generator": 2,
+        "probe": 4,
+        "receiver": 3
+      },
+      "status": "complete",
+      "environment": {
+        "platform": "Linux-6.12.54-linuxkit-aarch64-with-glibc2.36",
+        "machine": "aarch64",
+        "uname": [
+          "Linux",
+          "f69f21f3bcbe",
+          "6.12.54-linuxkit",
+          "#1 SMP Fri Nov 21 10:33:45 UTC 2025",
+          "aarch64",
+          ""
+        ],
+        "cpuinfo": "processor\t: 0\nBogoMIPS\t: 48.00\nFeatures\t: fp asimd evtstrm aes pmull sha1 sha2 crc32 atomics fphp asimdhp cpuid asimdrdm jscvt fcma lrcpc dcpop sha3 asimddp sha512 asimdfhm dit uscat ilrcpc flagm sb paca pacg dcpodp flagm2 frint\nCPU implementer\t: 0x61\nCPU architecture: 8\nCPU variant\t: 0x0\nCPU part\t: 0x000\nCPU revision\t: 0\n\nprocessor\t: 1\nBogoMIPS\t: 48.00\nFeatures\t: fp asimd evtstrm aes pmull sha1 sha2 crc32 atomics fphp asimdhp cpuid asimdrdm jscvt fcma lrcpc dcpop sha3 asimddp sha512 asimdfhm dit uscat ilrcpc flagm sb paca pacg dcpodp flagm2 frint\nCPU implementer\t: 0x61\nCPU architecture: 8\nCPU variant\t: 0x0\nCPU part\t: 0x000\nCPU revision\t: 0\n\nprocessor\t: 2\nBogoMIPS\t: 48.00\nFeatures\t: fp asimd evtstrm aes pmull sha1 sha2 crc32 atomics fphp asimdhp cpuid asimdrdm jscvt fcma lrcpc dcpop sha3 asimddp sha512 asimdfhm dit uscat ilrcpc flagm sb paca pacg dcpodp flagm2 frint\nCPU implementer\t: 0x61\nCPU architecture: 8\nCPU variant\t: 0x0\nCPU part\t: 0x000\nCPU revision\t: 0\n\nprocessor\t: 3\nBogoMIPS\t: 48.00\nFeatures\t: fp asimd evtstrm aes pmull sha1 sha2 crc32 atomics fphp asimdhp cpuid asimdrdm jscvt fcma lrcpc dcpop sha3 asimddp sha512 asimdfhm dit uscat ilrcpc flagm sb paca pacg dcpodp flagm2 frint\nCPU implementer\t: 0x61\nCPU architecture: 8\nCPU variant\t: 0x0\nCPU part\t: 0x000\nCPU revision\t: 0\n\nprocessor\t: 4\nBogoMIPS\t: 48.00\nFeatures\t: fp asimd evtstrm aes pmull sha1 sha2 crc32 atomics fphp asimdhp cpuid asimdrdm jscvt fcma lrcpc dcpop sha3 asimddp sha512 asimdfhm dit uscat ilrcpc flagm sb paca pacg dcpodp flagm2 frint\nCPU implementer\t: 0x61\nCPU architecture: 8\nCPU variant\t: 0x0\nCPU part\t: 0x000\nCPU revision\t: 0\n\nprocessor\t: 5\nBogoMIPS\t: 48.00\nFeatures\t: fp asimd evtstrm aes pmull sha1 sha2 crc32 atomics fphp asimdhp cpuid asimdrdm jscvt fcma lrcpc dcpop sha3 asimddp sha512 asimdfhm dit uscat ilrcpc flagm sb paca pacg dcpodp flagm2 frint\nCPU implementer\t: 0x61\nCPU architecture: 8\nCPU variant\t: 0x0\nCPU part\t: 0x000\nCPU revision\t: 0\n\nprocessor\t: 6\nBogoMIPS\t: 48.00\nFeatures\t: fp asimd evtstrm aes pmull sha1 sha2 crc32 atomics fphp asimdhp cpuid asimdrdm jscvt fcma lrcpc dcpop sha3 asimddp sha512 asimdfhm dit uscat ilrcpc flagm sb paca pacg dcpodp flagm2 frint\nCPU implementer\t: 0x61\nCPU architecture: 8\nCPU variant\t: 0x0\nCPU part\t: 0x000\nCPU revision\t: 0\n\nprocessor\t: 7\nBogoMIPS\t: 48.00\nFeatures\t: fp asimd evtstrm aes pmull sha1 sha2 crc32 atomics fphp asimdhp cpuid asimdrdm jscvt fcma lrcpc dcpop sha3 asimddp sha512 asimdfhm dit uscat ilrcpc flagm sb paca pacg dcpodp flagm2 frint\nCPU implementer\t: 0x61\nCPU architecture: 8\nCPU variant\t: 0x0\nCPU part\t: 0x000\nCPU revision\t: 0",
+        "lscpu": {
+          "command": [
+            "lscpu"
+          ],
+          "returncode": 0,
+          "stderr": "",
+          "stdout": "Architecture:                            aarch64\nCPU op-mode(s):                          64-bit\nByte Order:                              Little Endian\nCPU(s):                                  8\nOn-line CPU(s) list:                     0-7\nVendor ID:                               Apple\nModel name:                              -\nModel:                                   0\nThread(s) per core:                      1\nCore(s) per cluster:                     8\nSocket(s):                               -\nCluster(s):                              1\nStepping:                                0x0\nBogoMIPS:                                48.00\nFlags:                                   fp asimd evtstrm aes pmull sha1 sha2 crc32 atomics fphp asimdhp cpuid asimdrdm jscvt fcma lrcpc dcpop sha3 asimddp sha512 asimdfhm dit uscat ilrcpc flagm sb paca pacg dcpodp flagm2 frint\nVulnerability Gather data sampling:      Not affected\nVulnerability Indirect target selection: Not affected\nVulnerability Itlb multihit:             Not affected\nVulnerability L1tf:                      Not affected\nVulnerability Mds:                       Not affected\nVulnerability Meltdown:                  Not affected\nVulnerability Mmio stale data:           Not affected\nVulnerability Reg file data sampling:    Not affected\nVulnerability Retbleed:                  Not affected\nVulnerability Spec rstack overflow:      Not affected\nVulnerability Spec store bypass:         Vulnerable\nVulnerability Spectre v1:                Mitigation; __user pointer sanitization\nVulnerability Spectre v2:                Mitigation; CSV2, but not BHB\nVulnerability Srbds:                     Not affected\nVulnerability Tsa:                       Not affected\nVulnerability Tsx async abort:           Not affected\nVulnerability Vmscape:                   Not affected\n"
+        },
+        "compiler": {
+          "command": [
+            "cc",
+            "--version"
+          ],
+          "returncode": 0,
+          "stderr": "",
+          "stdout": "cc (Debian 12.2.0-14+deb12u1) 12.2.0\nCopyright (C) 2022 Free Software Foundation, Inc.\nThis is free software; see the source for copying conditions.  There is NO\nwarranty; not even for MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.\n\n"
+        },
+        "dpdk": {
+          "command": [
+            "pkg-config",
+            "--modversion",
+            "libdpdk"
+          ],
+          "returncode": 0,
+          "stderr": "",
+          "stdout": "22.11.11\n"
+        },
+        "cpu_max": "max 100000",
+        "cpuset": "0-7",
+        "original_allowed_cpus": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7
+        ],
+        "assignment": {
+          "applications": [
+            4,
+            5,
+            6,
+            7
+          ],
+          "control": 1,
+          "dataplane": 0,
+          "generator": 2,
+          "probe": 4,
+          "receiver": 3
+        },
+        "cpu_governors": {},
+        "cpu_frequencies": {},
+        "capabilities": {
+          "hardware_cycles": false,
+          "one_way_latency": false,
+          "physical_nic_benchmark": false,
+          "physical_reason": "No dedicated physical dataplane NIC was selected; management interfaces are never reused.",
+          "round_trip_latency": true,
+          "software_profiling": true,
+          "virtual_interfaces": true
+        },
+        "revision": {
+          "command": [
+            "git",
+            "-C",
+            "/src",
+            "rev-parse",
+            "HEAD"
+          ],
+          "returncode": 0,
+          "stderr": "",
+          "stdout": "a6e5b008bad3ee1110b2dec6fc21a9dff5d5a68e\n"
+        },
+        "working_tree": {
+          "command": [
+            "git",
+            "-C",
+            "/src",
+            "status",
+            "--porcelain"
+          ],
+          "returncode": 0,
+          "stderr": "",
+          "stdout": " M .gitignore\n M CMakeLists.txt\n?? AGENTS.md\n?? bench/\n"
+        },
+        "benchmark_source_sha256": null,
+        "notes": [
+          "CPU pinning does not isolate physical host CPUs.",
+          "Virtual Ethernet frame sizes exclude FCS, preamble and IFG.",
+          "Linux forwarding can execute softirq work on sender CPUs; it is not a pinned userspace worker."
+        ]
+      },
+      "selector": ".*",
+      "methodology_notes": [
+        "Exploratory one-second cohort. The stable route dataset changed from a direct route at count one to a gateway at larger counts; use the separately executed controlled cohort for route-count comparisons.",
+        "Exploratory TCP bulk uses a periodic byte checker; the primary cohort uses a stronger block-keyed stream checker."
+      ]
+    },
+    "loads": {
+      "samples": 168,
+      "duration": 1.0,
+      "repetitions": 7,
+      "seed": 42,
+      "assignment": {
+        "applications": [
+          4,
+          5,
+          6,
+          7
+        ],
+        "control": 1,
+        "dataplane": 0,
+        "generator": 2,
+        "probe": 4,
+        "receiver": 3
+      },
+      "status": "complete",
+      "environment": {
+        "platform": "Linux-6.12.54-linuxkit-aarch64-with-glibc2.36",
+        "machine": "aarch64",
+        "uname": [
+          "Linux",
+          "f69f21f3bcbe",
+          "6.12.54-linuxkit",
+          "#1 SMP Fri Nov 21 10:33:45 UTC 2025",
+          "aarch64",
+          ""
+        ],
+        "cpuinfo": "processor\t: 0\nBogoMIPS\t: 48.00\nFeatures\t: fp asimd evtstrm aes pmull sha1 sha2 crc32 atomics fphp asimdhp cpuid asimdrdm jscvt fcma lrcpc dcpop sha3 asimddp sha512 asimdfhm dit uscat ilrcpc flagm sb paca pacg dcpodp flagm2 frint\nCPU implementer\t: 0x61\nCPU architecture: 8\nCPU variant\t: 0x0\nCPU part\t: 0x000\nCPU revision\t: 0\n\nprocessor\t: 1\nBogoMIPS\t: 48.00\nFeatures\t: fp asimd evtstrm aes pmull sha1 sha2 crc32 atomics fphp asimdhp cpuid asimdrdm jscvt fcma lrcpc dcpop sha3 asimddp sha512 asimdfhm dit uscat ilrcpc flagm sb paca pacg dcpodp flagm2 frint\nCPU implementer\t: 0x61\nCPU architecture: 8\nCPU variant\t: 0x0\nCPU part\t: 0x000\nCPU revision\t: 0\n\nprocessor\t: 2\nBogoMIPS\t: 48.00\nFeatures\t: fp asimd evtstrm aes pmull sha1 sha2 crc32 atomics fphp asimdhp cpuid asimdrdm jscvt fcma lrcpc dcpop sha3 asimddp sha512 asimdfhm dit uscat ilrcpc flagm sb paca pacg dcpodp flagm2 frint\nCPU implementer\t: 0x61\nCPU architecture: 8\nCPU variant\t: 0x0\nCPU part\t: 0x000\nCPU revision\t: 0\n\nprocessor\t: 3\nBogoMIPS\t: 48.00\nFeatures\t: fp asimd evtstrm aes pmull sha1 sha2 crc32 atomics fphp asimdhp cpuid asimdrdm jscvt fcma lrcpc dcpop sha3 asimddp sha512 asimdfhm dit uscat ilrcpc flagm sb paca pacg dcpodp flagm2 frint\nCPU implementer\t: 0x61\nCPU architecture: 8\nCPU variant\t: 0x0\nCPU part\t: 0x000\nCPU revision\t: 0\n\nprocessor\t: 4\nBogoMIPS\t: 48.00\nFeatures\t: fp asimd evtstrm aes pmull sha1 sha2 crc32 atomics fphp asimdhp cpuid asimdrdm jscvt fcma lrcpc dcpop sha3 asimddp sha512 asimdfhm dit uscat ilrcpc flagm sb paca pacg dcpodp flagm2 frint\nCPU implementer\t: 0x61\nCPU architecture: 8\nCPU variant\t: 0x0\nCPU part\t: 0x000\nCPU revision\t: 0\n\nprocessor\t: 5\nBogoMIPS\t: 48.00\nFeatures\t: fp asimd evtstrm aes pmull sha1 sha2 crc32 atomics fphp asimdhp cpuid asimdrdm jscvt fcma lrcpc dcpop sha3 asimddp sha512 asimdfhm dit uscat ilrcpc flagm sb paca pacg dcpodp flagm2 frint\nCPU implementer\t: 0x61\nCPU architecture: 8\nCPU variant\t: 0x0\nCPU part\t: 0x000\nCPU revision\t: 0\n\nprocessor\t: 6\nBogoMIPS\t: 48.00\nFeatures\t: fp asimd evtstrm aes pmull sha1 sha2 crc32 atomics fphp asimdhp cpuid asimdrdm jscvt fcma lrcpc dcpop sha3 asimddp sha512 asimdfhm dit uscat ilrcpc flagm sb paca pacg dcpodp flagm2 frint\nCPU implementer\t: 0x61\nCPU architecture: 8\nCPU variant\t: 0x0\nCPU part\t: 0x000\nCPU revision\t: 0\n\nprocessor\t: 7\nBogoMIPS\t: 48.00\nFeatures\t: fp asimd evtstrm aes pmull sha1 sha2 crc32 atomics fphp asimdhp cpuid asimdrdm jscvt fcma lrcpc dcpop sha3 asimddp sha512 asimdfhm dit uscat ilrcpc flagm sb paca pacg dcpodp flagm2 frint\nCPU implementer\t: 0x61\nCPU architecture: 8\nCPU variant\t: 0x0\nCPU part\t: 0x000\nCPU revision\t: 0",
+        "lscpu": {
+          "command": [
+            "lscpu"
+          ],
+          "returncode": 0,
+          "stderr": "",
+          "stdout": "Architecture:                            aarch64\nCPU op-mode(s):                          64-bit\nByte Order:                              Little Endian\nCPU(s):                                  8\nOn-line CPU(s) list:                     0-7\nVendor ID:                               Apple\nModel name:                              -\nModel:                                   0\nThread(s) per core:                      1\nCore(s) per cluster:                     8\nSocket(s):                               -\nCluster(s):                              1\nStepping:                                0x0\nBogoMIPS:                                48.00\nFlags:                                   fp asimd evtstrm aes pmull sha1 sha2 crc32 atomics fphp asimdhp cpuid asimdrdm jscvt fcma lrcpc dcpop sha3 asimddp sha512 asimdfhm dit uscat ilrcpc flagm sb paca pacg dcpodp flagm2 frint\nVulnerability Gather data sampling:      Not affected\nVulnerability Indirect target selection: Not affected\nVulnerability Itlb multihit:             Not affected\nVulnerability L1tf:                      Not affected\nVulnerability Mds:                       Not affected\nVulnerability Meltdown:                  Not affected\nVulnerability Mmio stale data:           Not affected\nVulnerability Reg file data sampling:    Not affected\nVulnerability Retbleed:                  Not affected\nVulnerability Spec rstack overflow:      Not affected\nVulnerability Spec store bypass:         Vulnerable\nVulnerability Spectre v1:                Mitigation; __user pointer sanitization\nVulnerability Spectre v2:                Mitigation; CSV2, but not BHB\nVulnerability Srbds:                     Not affected\nVulnerability Tsa:                       Not affected\nVulnerability Tsx async abort:           Not affected\nVulnerability Vmscape:                   Not affected\n"
+        },
+        "compiler": {
+          "command": [
+            "cc",
+            "--version"
+          ],
+          "returncode": 0,
+          "stderr": "",
+          "stdout": "cc (Debian 12.2.0-14+deb12u1) 12.2.0\nCopyright (C) 2022 Free Software Foundation, Inc.\nThis is free software; see the source for copying conditions.  There is NO\nwarranty; not even for MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.\n\n"
+        },
+        "dpdk": {
+          "command": [
+            "pkg-config",
+            "--modversion",
+            "libdpdk"
+          ],
+          "returncode": 0,
+          "stderr": "",
+          "stdout": "22.11.11\n"
+        },
+        "cpu_max": "max 100000",
+        "cpuset": "0-7",
+        "original_allowed_cpus": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7
+        ],
+        "assignment": {
+          "applications": [
+            4,
+            5,
+            6,
+            7
+          ],
+          "control": 1,
+          "dataplane": 0,
+          "generator": 2,
+          "probe": 4,
+          "receiver": 3
+        },
+        "cpu_governors": {},
+        "cpu_frequencies": {},
+        "capabilities": {
+          "hardware_cycles": false,
+          "one_way_latency": false,
+          "physical_nic_benchmark": false,
+          "physical_reason": "No dedicated physical dataplane NIC was selected; management interfaces are never reused.",
+          "round_trip_latency": true,
+          "software_profiling": true,
+          "virtual_interfaces": true
+        },
+        "revision": {
+          "command": [
+            "git",
+            "-C",
+            "/src",
+            "rev-parse",
+            "HEAD"
+          ],
+          "returncode": 0,
+          "stderr": "",
+          "stdout": "f89430bf62c886523f8bbc094961d1fea155ac0c\n"
+        },
+        "working_tree": {
+          "command": [
+            "git",
+            "-C",
+            "/src",
+            "status",
+            "--porcelain"
+          ],
+          "returncode": 0,
+          "stderr": "",
+          "stdout": " M .github/workflows/ci.yml\n M README.md\n M bench/Dockerfile\n M bench/scenarios.py\n M bench/socket_client.c\n M bench/socket_server.c\n M bench/test_wire.c\n M bench/traffic_receiver.c\n M bench/wire.c\n M bench/wire.h\n?? .github/workflows/performance.yml\n?? AGENTS.md\n?? bench/README.md\n?? bench/profiling.py\n?? bench/run_e2e.py\n?? bench/runner.py\n?? bench/test_endpoints.py\n?? bench/validate.py\n"
+        },
+        "benchmark_source_sha256": {
+          "bench/analysis/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "bench/analysis/report.py": "b0d2c0bf3f58d05b3c4e7325734c69797401f904d0f3b9f97f5f1e801c95ab2e",
+          "bench/engine.py": "8c5fd8024d28d992bea523a89f1aff8aeb48d177ed450de8deb10be9e91b3579",
+          "bench/environment.py": "2f3e4d600916dd3077f389eb48c982c01b1df15ee07f320df1e5c5b59773121e",
+          "bench/latency.h": "08428ac8e788266e7f5b85dd54c94ea084c6928f650fb75983c9f869475c6004",
+          "bench/profiling.py": "965c664f2305a9782b965017dd0312601012f89d05211052e6efa7d95bbfde97",
+          "bench/run_e2e.py": "0afddfb4e913979bec289d5085f8f52d60ab8758230f61dd86f44ad715b207b2",
+          "bench/runner.py": "8e00ead08edc9f5f80dab161cd66114d0efb19bd2566ed98be2c691c7cbbdfef",
+          "bench/scenarios.py": "cbbe4dcbe3a344648c75ebb7305ebfccd66b3c64b0b24975ddaf20bd7c67d075",
+          "bench/socket_client.c": "7f5abe49f2c36dc1212730f8223f41606b7178e201a3c7f7c5dde71bc44d7478",
+          "bench/socket_server.c": "117928c3c2ca271dcbe77e5d09c0cfddb789649073405eece27a81b80b6163a4",
+          "bench/test_analysis.py": "ec519d04b9f2ac9f5967faf754398e4439c739869a2c2c3c07cdb86c2004328c",
+          "bench/test_endpoints.py": "5de253482d3b3cfc69fb7a8f4c6518f9e23e4b61b21ee31946aaed7de8de5f87",
+          "bench/test_wire.c": "e96e3953085f3600aa7cbed7422efcba9b4ce5f8ed8ece4bc44c5d86a3371c3b",
+          "bench/topology.py": "a9b7e23676633755e6f4ff83bffa103e414171d7232ae4eddcff3d329f7f4652",
+          "bench/traffic_generator.c": "4eda168e24639d25e28682f880c9be222d84e2debbbaef3f0394115da7a7b23a",
+          "bench/traffic_probe.c": "5abbe65ba37789d4bcce6330324fe74c855973a13e5e1c57879ccae211eb85af",
+          "bench/traffic_receiver.c": "1bd3ae0c2282f5787f16d4ccf128a73a9236b727295df22a386d04180c4fd99a",
+          "bench/validate.py": "375ca5b55cc4c1e0a3d867a2a50eadff0538bd06a1e9ff69d3428ded2b7949ab",
+          "bench/wire.c": "f6fe852c37da6eb42541fe4145ebb09fac5e4830468398e15b01b15771626e05",
+          "bench/wire.h": "6b47aa13f1852dc7ac68b0e1df71134df7b69d2a18a99c5a97138a6106a7b949"
+        },
+        "notes": [
+          "CPU pinning does not isolate physical host CPUs.",
+          "Virtual Ethernet frame sizes exclude FCS, preamble and IFG.",
+          "Linux forwarding can execute softirq work on sender CPUs; it is not a pinned userspace worker."
+        ]
+      },
+      "selector": "^forward_.*_rate(500000|750000|1000000)$",
+      "methodology_notes": []
+    },
+    "primary": {
+      "samples": 315,
+      "duration": 10.0,
+      "repetitions": 7,
+      "seed": 42,
+      "assignment": {
+        "applications": [
+          4,
+          5,
+          6,
+          7
+        ],
+        "control": 1,
+        "dataplane": 0,
+        "generator": 2,
+        "probe": 4,
+        "receiver": 3
+      },
+      "status": "complete",
+      "environment": {
+        "platform": "Linux-6.12.54-linuxkit-aarch64-with-glibc2.36",
+        "machine": "aarch64",
+        "uname": [
+          "Linux",
+          "f69f21f3bcbe",
+          "6.12.54-linuxkit",
+          "#1 SMP Fri Nov 21 10:33:45 UTC 2025",
+          "aarch64",
+          ""
+        ],
+        "cpuinfo": "processor\t: 0\nBogoMIPS\t: 48.00\nFeatures\t: fp asimd evtstrm aes pmull sha1 sha2 crc32 atomics fphp asimdhp cpuid asimdrdm jscvt fcma lrcpc dcpop sha3 asimddp sha512 asimdfhm dit uscat ilrcpc flagm sb paca pacg dcpodp flagm2 frint\nCPU implementer\t: 0x61\nCPU architecture: 8\nCPU variant\t: 0x0\nCPU part\t: 0x000\nCPU revision\t: 0\n\nprocessor\t: 1\nBogoMIPS\t: 48.00\nFeatures\t: fp asimd evtstrm aes pmull sha1 sha2 crc32 atomics fphp asimdhp cpuid asimdrdm jscvt fcma lrcpc dcpop sha3 asimddp sha512 asimdfhm dit uscat ilrcpc flagm sb paca pacg dcpodp flagm2 frint\nCPU implementer\t: 0x61\nCPU architecture: 8\nCPU variant\t: 0x0\nCPU part\t: 0x000\nCPU revision\t: 0\n\nprocessor\t: 2\nBogoMIPS\t: 48.00\nFeatures\t: fp asimd evtstrm aes pmull sha1 sha2 crc32 atomics fphp asimdhp cpuid asimdrdm jscvt fcma lrcpc dcpop sha3 asimddp sha512 asimdfhm dit uscat ilrcpc flagm sb paca pacg dcpodp flagm2 frint\nCPU implementer\t: 0x61\nCPU architecture: 8\nCPU variant\t: 0x0\nCPU part\t: 0x000\nCPU revision\t: 0\n\nprocessor\t: 3\nBogoMIPS\t: 48.00\nFeatures\t: fp asimd evtstrm aes pmull sha1 sha2 crc32 atomics fphp asimdhp cpuid asimdrdm jscvt fcma lrcpc dcpop sha3 asimddp sha512 asimdfhm dit uscat ilrcpc flagm sb paca pacg dcpodp flagm2 frint\nCPU implementer\t: 0x61\nCPU architecture: 8\nCPU variant\t: 0x0\nCPU part\t: 0x000\nCPU revision\t: 0\n\nprocessor\t: 4\nBogoMIPS\t: 48.00\nFeatures\t: fp asimd evtstrm aes pmull sha1 sha2 crc32 atomics fphp asimdhp cpuid asimdrdm jscvt fcma lrcpc dcpop sha3 asimddp sha512 asimdfhm dit uscat ilrcpc flagm sb paca pacg dcpodp flagm2 frint\nCPU implementer\t: 0x61\nCPU architecture: 8\nCPU variant\t: 0x0\nCPU part\t: 0x000\nCPU revision\t: 0\n\nprocessor\t: 5\nBogoMIPS\t: 48.00\nFeatures\t: fp asimd evtstrm aes pmull sha1 sha2 crc32 atomics fphp asimdhp cpuid asimdrdm jscvt fcma lrcpc dcpop sha3 asimddp sha512 asimdfhm dit uscat ilrcpc flagm sb paca pacg dcpodp flagm2 frint\nCPU implementer\t: 0x61\nCPU architecture: 8\nCPU variant\t: 0x0\nCPU part\t: 0x000\nCPU revision\t: 0\n\nprocessor\t: 6\nBogoMIPS\t: 48.00\nFeatures\t: fp asimd evtstrm aes pmull sha1 sha2 crc32 atomics fphp asimdhp cpuid asimdrdm jscvt fcma lrcpc dcpop sha3 asimddp sha512 asimdfhm dit uscat ilrcpc flagm sb paca pacg dcpodp flagm2 frint\nCPU implementer\t: 0x61\nCPU architecture: 8\nCPU variant\t: 0x0\nCPU part\t: 0x000\nCPU revision\t: 0\n\nprocessor\t: 7\nBogoMIPS\t: 48.00\nFeatures\t: fp asimd evtstrm aes pmull sha1 sha2 crc32 atomics fphp asimdhp cpuid asimdrdm jscvt fcma lrcpc dcpop sha3 asimddp sha512 asimdfhm dit uscat ilrcpc flagm sb paca pacg dcpodp flagm2 frint\nCPU implementer\t: 0x61\nCPU architecture: 8\nCPU variant\t: 0x0\nCPU part\t: 0x000\nCPU revision\t: 0",
+        "lscpu": {
+          "command": [
+            "lscpu"
+          ],
+          "returncode": 0,
+          "stderr": "",
+          "stdout": "Architecture:                            aarch64\nCPU op-mode(s):                          64-bit\nByte Order:                              Little Endian\nCPU(s):                                  8\nOn-line CPU(s) list:                     0-7\nVendor ID:                               Apple\nModel name:                              -\nModel:                                   0\nThread(s) per core:                      1\nCore(s) per cluster:                     8\nSocket(s):                               -\nCluster(s):                              1\nStepping:                                0x0\nBogoMIPS:                                48.00\nFlags:                                   fp asimd evtstrm aes pmull sha1 sha2 crc32 atomics fphp asimdhp cpuid asimdrdm jscvt fcma lrcpc dcpop sha3 asimddp sha512 asimdfhm dit uscat ilrcpc flagm sb paca pacg dcpodp flagm2 frint\nVulnerability Gather data sampling:      Not affected\nVulnerability Indirect target selection: Not affected\nVulnerability Itlb multihit:             Not affected\nVulnerability L1tf:                      Not affected\nVulnerability Mds:                       Not affected\nVulnerability Meltdown:                  Not affected\nVulnerability Mmio stale data:           Not affected\nVulnerability Reg file data sampling:    Not affected\nVulnerability Retbleed:                  Not affected\nVulnerability Spec rstack overflow:      Not affected\nVulnerability Spec store bypass:         Vulnerable\nVulnerability Spectre v1:                Mitigation; __user pointer sanitization\nVulnerability Spectre v2:                Mitigation; CSV2, but not BHB\nVulnerability Srbds:                     Not affected\nVulnerability Tsa:                       Not affected\nVulnerability Tsx async abort:           Not affected\nVulnerability Vmscape:                   Not affected\n"
+        },
+        "compiler": {
+          "command": [
+            "cc",
+            "--version"
+          ],
+          "returncode": 0,
+          "stderr": "",
+          "stdout": "cc (Debian 12.2.0-14+deb12u1) 12.2.0\nCopyright (C) 2022 Free Software Foundation, Inc.\nThis is free software; see the source for copying conditions.  There is NO\nwarranty; not even for MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.\n\n"
+        },
+        "dpdk": {
+          "command": [
+            "pkg-config",
+            "--modversion",
+            "libdpdk"
+          ],
+          "returncode": 0,
+          "stderr": "",
+          "stdout": "22.11.11\n"
+        },
+        "cpu_max": "max 100000",
+        "cpuset": "0-7",
+        "original_allowed_cpus": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7
+        ],
+        "assignment": {
+          "applications": [
+            4,
+            5,
+            6,
+            7
+          ],
+          "control": 1,
+          "dataplane": 0,
+          "generator": 2,
+          "probe": 4,
+          "receiver": 3
+        },
+        "cpu_governors": {},
+        "cpu_frequencies": {},
+        "capabilities": {
+          "hardware_cycles": false,
+          "one_way_latency": false,
+          "physical_nic_benchmark": false,
+          "physical_reason": "No dedicated physical dataplane NIC was selected; management interfaces are never reused.",
+          "round_trip_latency": true,
+          "software_profiling": true,
+          "virtual_interfaces": true
+        },
+        "revision": {
+          "command": [
+            "git",
+            "-C",
+            "/src",
+            "rev-parse",
+            "HEAD"
+          ],
+          "returncode": 0,
+          "stderr": "",
+          "stdout": "973f088fe2a86bc0eb16f06039dcada7896a51e7\n"
+        },
+        "working_tree": {
+          "command": [
+            "git",
+            "-C",
+            "/src",
+            "status",
+            "--porcelain"
+          ],
+          "returncode": 0,
+          "stderr": "",
+          "stdout": " M .github/workflows/ci.yml\n M README.md\n M bench/engine.py\n M bench/latency.h\n M bench/scenarios.py\n M bench/socket_client.c\n M bench/socket_server.c\n M bench/test_wire.c\n M bench/traffic_receiver.c\n M bench/wire.c\n M bench/wire.h\n?? .github/workflows/performance.yml\n?? AGENTS.md\n?? bench/README.md\n?? bench/test_endpoints.py\n"
+        },
+        "benchmark_source_sha256": {
+          "bench/analysis/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "bench/analysis/report.py": "b0d2c0bf3f58d05b3c4e7325734c69797401f904d0f3b9f97f5f1e801c95ab2e",
+          "bench/engine.py": "667e5fefba35902b1308078c9ec8c05a1b5b6f41e0224c24c4212b4e9fe90b5b",
+          "bench/environment.py": "2f3e4d600916dd3077f389eb48c982c01b1df15ee07f320df1e5c5b59773121e",
+          "bench/latency.h": "b20632fd680aa651c35b6066a5bf7eb162f4fe465b4c0cdd2701edc3b53829b8",
+          "bench/profiling.py": "965c664f2305a9782b965017dd0312601012f89d05211052e6efa7d95bbfde97",
+          "bench/run_e2e.py": "0afddfb4e913979bec289d5085f8f52d60ab8758230f61dd86f44ad715b207b2",
+          "bench/runner.py": "8e00ead08edc9f5f80dab161cd66114d0efb19bd2566ed98be2c691c7cbbdfef",
+          "bench/scenarios.py": "2deb70d77464109750acb79881b9cf72bfcee561f0f598e5a20e29385e09f338",
+          "bench/socket_client.c": "7f5abe49f2c36dc1212730f8223f41606b7178e201a3c7f7c5dde71bc44d7478",
+          "bench/socket_server.c": "117928c3c2ca271dcbe77e5d09c0cfddb789649073405eece27a81b80b6163a4",
+          "bench/test_analysis.py": "ec519d04b9f2ac9f5967faf754398e4439c739869a2c2c3c07cdb86c2004328c",
+          "bench/test_endpoints.py": "5de253482d3b3cfc69fb7a8f4c6518f9e23e4b61b21ee31946aaed7de8de5f87",
+          "bench/test_wire.c": "e96e3953085f3600aa7cbed7422efcba9b4ce5f8ed8ece4bc44c5d86a3371c3b",
+          "bench/topology.py": "a9b7e23676633755e6f4ff83bffa103e414171d7232ae4eddcff3d329f7f4652",
+          "bench/traffic_generator.c": "4eda168e24639d25e28682f880c9be222d84e2debbbaef3f0394115da7a7b23a",
+          "bench/traffic_probe.c": "5abbe65ba37789d4bcce6330324fe74c855973a13e5e1c57879ccae211eb85af",
+          "bench/traffic_receiver.c": "1bd3ae0c2282f5787f16d4ccf128a73a9236b727295df22a386d04180c4fd99a",
+          "bench/validate.py": "375ca5b55cc4c1e0a3d867a2a50eadff0538bd06a1e9ff69d3428ded2b7949ab",
+          "bench/wire.c": "f6fe852c37da6eb42541fe4145ebb09fac5e4830468398e15b01b15771626e05",
+          "bench/wire.h": "6b47aa13f1852dc7ac68b0e1df71134df7b69d2a18a99c5a97138a6106a7b949"
+        },
+        "notes": [
+          "CPU pinning does not isolate physical host CPUs.",
+          "Virtual Ethernet frame sizes exclude FCS, preamble and IFG.",
+          "Linux forwarding can execute softirq work on sender CPUs; it is not a pinned userspace worker."
+        ]
+      },
+      "selector": "^(calibration_128|forward_(60|128|512|1514)_rate0|forward_128_rate(250000|500000|750000|1000000)|route_256_stable|policy_(0|32|32_empty)|acl_(0|128)_miss|udp_(1_rr|2_rr|4_rr|receiver)|tcp_bulk|latency_rate0)$",
+      "methodology_notes": []
+    },
+    "controlled": {
+      "samples": 91,
+      "duration": 1.0,
+      "repetitions": 7,
+      "seed": 42,
+      "assignment": {
+        "applications": [
+          4,
+          5,
+          6,
+          7
+        ],
+        "control": 1,
+        "dataplane": 0,
+        "generator": 2,
+        "probe": 4,
+        "receiver": 3
+      },
+      "status": "complete",
+      "environment": {
+        "platform": "Linux-6.12.54-linuxkit-aarch64-with-glibc2.36",
+        "machine": "aarch64",
+        "uname": [
+          "Linux",
+          "f69f21f3bcbe",
+          "6.12.54-linuxkit",
+          "#1 SMP Fri Nov 21 10:33:45 UTC 2025",
+          "aarch64",
+          ""
+        ],
+        "cpuinfo": "processor\t: 0\nBogoMIPS\t: 48.00\nFeatures\t: fp asimd evtstrm aes pmull sha1 sha2 crc32 atomics fphp asimdhp cpuid asimdrdm jscvt fcma lrcpc dcpop sha3 asimddp sha512 asimdfhm dit uscat ilrcpc flagm sb paca pacg dcpodp flagm2 frint\nCPU implementer\t: 0x61\nCPU architecture: 8\nCPU variant\t: 0x0\nCPU part\t: 0x000\nCPU revision\t: 0\n\nprocessor\t: 1\nBogoMIPS\t: 48.00\nFeatures\t: fp asimd evtstrm aes pmull sha1 sha2 crc32 atomics fphp asimdhp cpuid asimdrdm jscvt fcma lrcpc dcpop sha3 asimddp sha512 asimdfhm dit uscat ilrcpc flagm sb paca pacg dcpodp flagm2 frint\nCPU implementer\t: 0x61\nCPU architecture: 8\nCPU variant\t: 0x0\nCPU part\t: 0x000\nCPU revision\t: 0\n\nprocessor\t: 2\nBogoMIPS\t: 48.00\nFeatures\t: fp asimd evtstrm aes pmull sha1 sha2 crc32 atomics fphp asimdhp cpuid asimdrdm jscvt fcma lrcpc dcpop sha3 asimddp sha512 asimdfhm dit uscat ilrcpc flagm sb paca pacg dcpodp flagm2 frint\nCPU implementer\t: 0x61\nCPU architecture: 8\nCPU variant\t: 0x0\nCPU part\t: 0x000\nCPU revision\t: 0\n\nprocessor\t: 3\nBogoMIPS\t: 48.00\nFeatures\t: fp asimd evtstrm aes pmull sha1 sha2 crc32 atomics fphp asimdhp cpuid asimdrdm jscvt fcma lrcpc dcpop sha3 asimddp sha512 asimdfhm dit uscat ilrcpc flagm sb paca pacg dcpodp flagm2 frint\nCPU implementer\t: 0x61\nCPU architecture: 8\nCPU variant\t: 0x0\nCPU part\t: 0x000\nCPU revision\t: 0\n\nprocessor\t: 4\nBogoMIPS\t: 48.00\nFeatures\t: fp asimd evtstrm aes pmull sha1 sha2 crc32 atomics fphp asimdhp cpuid asimdrdm jscvt fcma lrcpc dcpop sha3 asimddp sha512 asimdfhm dit uscat ilrcpc flagm sb paca pacg dcpodp flagm2 frint\nCPU implementer\t: 0x61\nCPU architecture: 8\nCPU variant\t: 0x0\nCPU part\t: 0x000\nCPU revision\t: 0\n\nprocessor\t: 5\nBogoMIPS\t: 48.00\nFeatures\t: fp asimd evtstrm aes pmull sha1 sha2 crc32 atomics fphp asimdhp cpuid asimdrdm jscvt fcma lrcpc dcpop sha3 asimddp sha512 asimdfhm dit uscat ilrcpc flagm sb paca pacg dcpodp flagm2 frint\nCPU implementer\t: 0x61\nCPU architecture: 8\nCPU variant\t: 0x0\nCPU part\t: 0x000\nCPU revision\t: 0\n\nprocessor\t: 6\nBogoMIPS\t: 48.00\nFeatures\t: fp asimd evtstrm aes pmull sha1 sha2 crc32 atomics fphp asimdhp cpuid asimdrdm jscvt fcma lrcpc dcpop sha3 asimddp sha512 asimdfhm dit uscat ilrcpc flagm sb paca pacg dcpodp flagm2 frint\nCPU implementer\t: 0x61\nCPU architecture: 8\nCPU variant\t: 0x0\nCPU part\t: 0x000\nCPU revision\t: 0\n\nprocessor\t: 7\nBogoMIPS\t: 48.00\nFeatures\t: fp asimd evtstrm aes pmull sha1 sha2 crc32 atomics fphp asimdhp cpuid asimdrdm jscvt fcma lrcpc dcpop sha3 asimddp sha512 asimdfhm dit uscat ilrcpc flagm sb paca pacg dcpodp flagm2 frint\nCPU implementer\t: 0x61\nCPU architecture: 8\nCPU variant\t: 0x0\nCPU part\t: 0x000\nCPU revision\t: 0",
+        "lscpu": {
+          "command": [
+            "lscpu"
+          ],
+          "returncode": 0,
+          "stderr": "",
+          "stdout": "Architecture:                            aarch64\nCPU op-mode(s):                          64-bit\nByte Order:                              Little Endian\nCPU(s):                                  8\nOn-line CPU(s) list:                     0-7\nVendor ID:                               Apple\nModel name:                              -\nModel:                                   0\nThread(s) per core:                      1\nCore(s) per cluster:                     8\nSocket(s):                               -\nCluster(s):                              1\nStepping:                                0x0\nBogoMIPS:                                48.00\nFlags:                                   fp asimd evtstrm aes pmull sha1 sha2 crc32 atomics fphp asimdhp cpuid asimdrdm jscvt fcma lrcpc dcpop sha3 asimddp sha512 asimdfhm dit uscat ilrcpc flagm sb paca pacg dcpodp flagm2 frint\nVulnerability Gather data sampling:      Not affected\nVulnerability Indirect target selection: Not affected\nVulnerability Itlb multihit:             Not affected\nVulnerability L1tf:                      Not affected\nVulnerability Mds:                       Not affected\nVulnerability Meltdown:                  Not affected\nVulnerability Mmio stale data:           Not affected\nVulnerability Reg file data sampling:    Not affected\nVulnerability Retbleed:                  Not affected\nVulnerability Spec rstack overflow:      Not affected\nVulnerability Spec store bypass:         Vulnerable\nVulnerability Spectre v1:                Mitigation; __user pointer sanitization\nVulnerability Spectre v2:                Mitigation; CSV2, but not BHB\nVulnerability Srbds:                     Not affected\nVulnerability Tsa:                       Not affected\nVulnerability Tsx async abort:           Not affected\nVulnerability Vmscape:                   Not affected\n"
+        },
+        "compiler": {
+          "command": [
+            "cc",
+            "--version"
+          ],
+          "returncode": 0,
+          "stderr": "",
+          "stdout": "cc (Debian 12.2.0-14+deb12u1) 12.2.0\nCopyright (C) 2022 Free Software Foundation, Inc.\nThis is free software; see the source for copying conditions.  There is NO\nwarranty; not even for MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.\n\n"
+        },
+        "dpdk": {
+          "command": [
+            "pkg-config",
+            "--modversion",
+            "libdpdk"
+          ],
+          "returncode": 0,
+          "stderr": "",
+          "stdout": "22.11.11\n"
+        },
+        "cpu_max": "max 100000",
+        "cpuset": "0-7",
+        "original_allowed_cpus": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7
+        ],
+        "assignment": {
+          "applications": [
+            4,
+            5,
+            6,
+            7
+          ],
+          "control": 1,
+          "dataplane": 0,
+          "generator": 2,
+          "probe": 4,
+          "receiver": 3
+        },
+        "cpu_governors": {},
+        "cpu_frequencies": {},
+        "capabilities": {
+          "hardware_cycles": false,
+          "one_way_latency": false,
+          "physical_nic_benchmark": false,
+          "physical_reason": "No dedicated physical dataplane NIC was selected; management interfaces are never reused.",
+          "round_trip_latency": true,
+          "software_profiling": true,
+          "virtual_interfaces": true
+        },
+        "revision": {
+          "command": [
+            "git",
+            "-C",
+            "/src",
+            "rev-parse",
+            "HEAD"
+          ],
+          "returncode": 0,
+          "stderr": "",
+          "stdout": "f56fea452fa60b4885f181c568f0aa2c90aaffd2\n"
+        },
+        "working_tree": {
+          "command": [
+            "git",
+            "-C",
+            "/src",
+            "status",
+            "--porcelain"
+          ],
+          "returncode": 0,
+          "stderr": "",
+          "stdout": " M README.md\n M bench/CMakeLists.txt\n M bench/analysis/report.py\n M bench/profiling.py\n M bench/runner.py\n M bench/test_endpoints.py\n M bench/wire.c\n?? AGENTS.md\n?? bench/README.md\n?? bench/analysis/publish.py\n?? docs/\n"
+        },
+        "benchmark_source_sha256": {
+          "bench/analysis/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "bench/analysis/publish.py": "5a204f410acc48a70937494557fa008255bf92c4b175afb6832c3676400f420a",
+          "bench/analysis/report.py": "c870b9799e873e8888160a731117fb2530385eb0c6682b035fd962c08fb594f4",
+          "bench/engine.py": "667e5fefba35902b1308078c9ec8c05a1b5b6f41e0224c24c4212b4e9fe90b5b",
+          "bench/environment.py": "2f3e4d600916dd3077f389eb48c982c01b1df15ee07f320df1e5c5b59773121e",
+          "bench/latency.h": "b20632fd680aa651c35b6066a5bf7eb162f4fe465b4c0cdd2701edc3b53829b8",
+          "bench/profiling.py": "21358de32c59a41a7b2469f59a8175e488de9d8a4f931708da93be84631699c4",
+          "bench/run_e2e.py": "060c1a0d59a2d049f72fa9f3657e4a41637b15a1c28b2377658bb319ae819dde",
+          "bench/runner.py": "0d7cb73b6d9ef33b285a5a5df449c1f9fd40a4631a429a98b6ffbbc986bab783",
+          "bench/scenarios.py": "2deb70d77464109750acb79881b9cf72bfcee561f0f598e5a20e29385e09f338",
+          "bench/socket_client.c": "7f5abe49f2c36dc1212730f8223f41606b7178e201a3c7f7c5dde71bc44d7478",
+          "bench/socket_server.c": "117928c3c2ca271dcbe77e5d09c0cfddb789649073405eece27a81b80b6163a4",
+          "bench/test_analysis.py": "ec519d04b9f2ac9f5967faf754398e4439c739869a2c2c3c07cdb86c2004328c",
+          "bench/test_endpoints.py": "542f738e20e88f78560b99e01474cb8f9cb7373f5d1b42cdd850af4d7229d3ca",
+          "bench/test_wire.c": "e96e3953085f3600aa7cbed7422efcba9b4ce5f8ed8ece4bc44c5d86a3371c3b",
+          "bench/topology.py": "a9b7e23676633755e6f4ff83bffa103e414171d7232ae4eddcff3d329f7f4652",
+          "bench/traffic_generator.c": "4eda168e24639d25e28682f880c9be222d84e2debbbaef3f0394115da7a7b23a",
+          "bench/traffic_probe.c": "5abbe65ba37789d4bcce6330324fe74c855973a13e5e1c57879ccae211eb85af",
+          "bench/traffic_receiver.c": "1bd3ae0c2282f5787f16d4ccf128a73a9236b727295df22a386d04180c4fd99a",
+          "bench/validate.py": "375ca5b55cc4c1e0a3d867a2a50eadff0538bd06a1e9ff69d3428ded2b7949ab",
+          "bench/wire.c": "d4c518478d255d3a07a20933c212097c2640b559c0a3571f0b6f6d98bdab32cc",
+          "bench/wire.h": "6b47aa13f1852dc7ac68b0e1df71134df7b69d2a18a99c5a97138a6106a7b949"
+        },
+        "notes": [
+          "CPU pinning does not isolate physical host CPUs.",
+          "Virtual Ethernet frame sizes exclude FCS, preamble and IFG.",
+          "Linux forwarding can execute softirq work on sender CPUs; it is not a pinned userspace worker."
+        ]
+      },
+      "selector": "^(route_(1|8|32|128|256)_stable|addresses_2_forward)$",
+      "methodology_notes": []
+    }
+  }
+}
