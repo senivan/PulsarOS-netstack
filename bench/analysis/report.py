@@ -257,6 +257,9 @@ def analyze(directory, threshold=.20):
              '| Case | Engine | n | Median | Unit | Min–max | Loss median |', '|---|---|---:|---:|---|---:|---:|']
     for r in summary:
         lines.append(f'| {r["case"]} | {r["engine"]} | {r["n"]} | {r["median"]:.2f} | {r["metric_unit"]} | {r["minimum"]:.2f}–{r["maximum"]:.2f} | {r["median_loss"]:.3%} |')
+    if manifest.get('methodology_notes'):
+        lines += ['', '## Cohort qualifications', '']
+        lines += ['- '+note for note in manifest['methodology_notes']]
     lines += ['','## Research questions','']
     for i, answer in enumerate(result['research_answers'],1):
         lines += [f'{i}. {answer}','']
