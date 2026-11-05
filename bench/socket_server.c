@@ -1,4 +1,4 @@
-#define _POSIX_C_SOURCE 200809L
+#define _GNU_SOURCE
 #include <arpa/inet.h>
 #include <errno.h>
 #include <fcntl.h>
@@ -14,6 +14,9 @@
 #include <time.h>
 #include <unistd.h>
 #include "wire.h"
+#ifdef PULSAROS_BATCH
+#include "ps_socket.h"
+#endif
 #ifdef PULSAROS_CLIENT
 #include "ps_socket.h"
 typedef struct ps_sockaddr endpoint;
@@ -71,6 +74,7 @@ static ssize_t transmit(int fd, const void *b, size_t n)
     ssize_t r = send(fd, b, n, MSG_NOSIGNAL);
     return r < 0 ? -errno : r;
 }
+#ifndef PULSAROS_BATCH
 static ssize_t receive_from(int fd, void *b, size_t n, endpoint *a)
 {
     socklen_t z = sizeof(*a);
@@ -82,6 +86,7 @@ static ssize_t transmit_to(int fd, const void *b, size_t n, endpoint *a)
     ssize_t r = sendto(fd, b, n, MSG_NOSIGNAL, (struct sockaddr *)a, sizeof(*a));
     return r < 0 ? -errno : r;
 }
+#endif
 static int listen_socket(int fd, int backlog) { return listen(fd, backlog) ? -errno : 0; }
 static int accept_socket(int fd, endpoint *a)
 {
@@ -95,6 +100,56 @@ static int accept_socket(int fd, endpoint *a)
     return r;
 }
 static void finish(void) {}
+#endif
+#ifdef PULSAROS_BATCH
+static int receive_many(int fd, struct ps_mmsg *messages, unsigned count)
+{
+#ifdef PULSAROS_CLIENT
+    return ps_recvmmsg(fd, messages, count);
+#else
+    struct mmsghdr headers[PS_DGRAM_BATCH_MAX] = {0};
+    struct iovec vectors[PS_DGRAM_BATCH_MAX];
+    struct sockaddr_in peers[PS_DGRAM_BATCH_MAX];
+    for (unsigned i = 0; i < count; i++) {
+        vectors[i] = (struct iovec){messages[i].data, messages[i].len};
+        headers[i].msg_hdr.msg_iov = &vectors[i];
+        headers[i].msg_hdr.msg_iovlen = 1;
+        headers[i].msg_hdr.msg_name = &peers[i];
+        headers[i].msg_hdr.msg_namelen = sizeof(peers[i]);
+    }
+    int n = recvmmsg(fd, headers, count, MSG_DONTWAIT, NULL);
+    if (n < 0)
+        return -errno;
+    for (int i = 0; i < n; i++) {
+        messages[i].len = headers[i].msg_len;
+        messages[i].addr = (struct ps_sockaddr){.ip_be = peers[i].sin_addr.s_addr,
+                                                .port = ntohs(peers[i].sin_port)};
+    }
+    return n;
+#endif
+}
+static int transmit_many(int fd, const struct ps_mmsg *messages, unsigned count)
+{
+#ifdef PULSAROS_CLIENT
+    return ps_sendmmsg(fd, messages, count);
+#else
+    struct mmsghdr headers[PS_DGRAM_BATCH_MAX] = {0};
+    struct iovec vectors[PS_DGRAM_BATCH_MAX];
+    struct sockaddr_in peers[PS_DGRAM_BATCH_MAX];
+    for (unsigned i = 0; i < count; i++) {
+        peers[i] = (struct sockaddr_in){.sin_family = AF_INET,
+                                        .sin_port = htons(messages[i].addr.port),
+                                        .sin_addr.s_addr = messages[i].addr.ip_be};
+        vectors[i] = (struct iovec){messages[i].data, messages[i].len};
+        headers[i].msg_hdr.msg_iov = &vectors[i];
+        headers[i].msg_hdr.msg_iovlen = 1;
+        headers[i].msg_hdr.msg_name = &peers[i];
+        headers[i].msg_hdr.msg_namelen = sizeof(peers[i]);
+    }
+    int n = sendmmsg(fd, headers, count, MSG_NOSIGNAL | MSG_DONTWAIT);
+    return n < 0 ? -errno : n;
+#endif
+}
 #endif
 static volatile sig_atomic_t stopping, snapshot;
 static void handler(int sig)
@@ -132,6 +187,34 @@ static void save(const char *path)
     if (fclose(f) || rename(tmp, path)) {
         perror("server metrics commit");
         exit(1);
+    }
+}
+static void received_datagram(const uint8_t *data, size_t n, uint8_t *seen)
+{
+    packets++;
+    bytes += (uint64_t)n;
+    uint64_t seq = 0;
+    if (n < 16 || !payload_valid(data, (size_t)n, read32(data + 4), 42, &seq) || seq >= 64000000)
+        invalid++;
+    else {
+        uint32_t current = read32(data + 4);
+        if (current != seen_run) {
+            memset(seen, 0, 8000000);
+            seen_run = current;
+            run_packets = run_unique = run_bytes = run_first = run_last = 0;
+        }
+        run_packets++;
+        run_last = clock_ns();
+        if (!run_first)
+            run_first = run_last;
+        if (seen[seq / 8] & (1u << (seq % 8)))
+            duplicates++;
+        else {
+            seen[seq / 8] |= (uint8_t)(1u << (seq % 8));
+            unique++;
+            run_unique++;
+            run_bytes += (uint64_t)n;
+        }
     }
 }
 int main(int argc, char **argv)
@@ -197,38 +280,41 @@ int main(int argc, char **argv)
     while (!stopping) {
         int progress = 0;
         if (!tcp) {
+#ifdef PULSAROS_BATCH
+            uint8_t data[PS_DGRAM_BATCH_MAX][PS_DGRAM_MAX_PAYLOAD];
+            struct ps_mmsg messages[PS_DGRAM_BATCH_MAX];
+            for (unsigned i = 0; i < PS_DGRAM_BATCH_MAX; i++)
+                messages[i] = (struct ps_mmsg){.data = data[i], .len = sizeof(data[i])};
+            calls++;
+            int received = receive_many(fd, messages, PS_DGRAM_BATCH_MAX);
+            if (received > 0) {
+                progress = 1;
+                for (int i = 0; i < received; i++)
+                    received_datagram(messages[i].data, messages[i].len, seen);
+                if (!sink)
+                    for (unsigned sent = 0; sent < (unsigned)received;) {
+                        calls++;
+                        int n = transmit_many(fd, messages + sent, (unsigned)received - sent);
+                        if (n > 0)
+                            sent += (unsigned)n;
+                        else {
+                            if (n != -EAGAIN)
+                                invalid++;
+                            break;
+                        }
+                    }
+            } else if (received != -EAGAIN) {
+                fprintf(stderr, "server recv: %d\n", received);
+                break;
+            }
+#else
             uint8_t data[1472];
             endpoint peer;
             calls++;
             ssize_t n = receive_from(fd, data, sizeof(data), &peer);
             if (n >= 0) {
                 progress = 1;
-                packets++;
-                bytes += (uint64_t)n;
-                uint64_t seq = 0;
-                if (n < 16 || !payload_valid(data, (size_t)n, read32(data + 4), 42, &seq) ||
-                    seq >= 64000000)
-                    invalid++;
-                else {
-                    uint32_t current = read32(data + 4);
-                    if (current != seen_run) {
-                        memset(seen, 0, 8000000);
-                        seen_run = current;
-                        run_packets = run_unique = run_bytes = run_first = run_last = 0;
-                    }
-                    run_packets++;
-                    run_last = clock_ns();
-                    if (!run_first)
-                        run_first = run_last;
-                    if (seen[seq / 8] & (1u << (seq % 8)))
-                        duplicates++;
-                    else {
-                        seen[seq / 8] |= (uint8_t)(1u << (seq % 8));
-                        unique++;
-                        run_unique++;
-                        run_bytes += (uint64_t)n;
-                    }
-                }
+                received_datagram(data, (size_t)n, seen);
                 if (!sink) {
                     calls++;
                     ssize_t sent = transmit_to(fd, data, (size_t)n, &peer);
@@ -239,6 +325,7 @@ int main(int argc, char **argv)
                 fprintf(stderr, "server recv: %zd\n", n);
                 break;
             }
+#endif
         } else {
             for (unsigned i = 0; i < 64; i++)
                 if (clients[i].fd < 0) {

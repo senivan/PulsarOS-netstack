@@ -25,6 +25,7 @@ class Case:
     cold: bool = False
     unresolved: bool = False
     change: bool = False
+    batch: bool = False
 
     def data(self):
         return asdict(self)
@@ -70,6 +71,8 @@ def matrix(profile):
     for count in (1, 2, 4):
         cases.append(Case(f'udp_{count}_rr', 'application', routes=2, addresses=2, services=count))
     cases += [Case('udp_receiver', 'application', routes=2, addresses=2, mode='sink', rate=0),
+              Case('udp_receiver_batch', 'application', routes=2, addresses=2, mode='sink', batch=True),
+              Case('udp_1_rr_batch', 'application', routes=2, addresses=2, batch=True),
               Case('udp_addresses_64', 'application', routes=2, mode='sink', addresses=64, rate=0)]
     for mode in ('connect', 'short', 'rr', 'bulk'):
         cases.append(Case(f'tcp_{mode}', 'application', routes=2, addresses=2, kind='tcp', mode=mode, payload=4096 if mode == 'bulk' else 64))
@@ -86,7 +89,7 @@ def eligible(case, engine, profile):
     if engine in ('current', 'before') and (case.routes > 256 or case.acl > 128):
         return False
     if engine == 'before':
-        return case.name in ('forward_128_rate0', 'route_256_worst', 'route_256_stable', 'policy_32_empty', 'addresses_64_forward', 'acl_128_miss', 'udp_1_rr', 'udp_receiver', 'tcp_rr', 'tcp_bulk')
+        return case.name in ('forward_128_rate0', 'route_256_worst', 'route_256_stable', 'policy_32_empty', 'addresses_64_forward', 'acl_128_miss', 'udp_1_rr', 'udp_2_rr', 'udp_4_rr', 'udp_receiver', 'tcp_rr', 'tcp_bulk')
     if engine == 'linux' and profile == 'standard':
         return case.group in ('forward', 'application', 'latency') or case.name in ('route_256_stable', 'policy_32_empty', 'acl_128_miss', 'acl_drop')
     return True
