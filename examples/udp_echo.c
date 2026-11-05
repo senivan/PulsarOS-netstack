@@ -19,13 +19,21 @@ int main(int argc, char **argv)
     fflush(stdout);
     int rc = 0;
     while (!client_stopping) {
-        uint8_t payload[PS_DGRAM_MAX_PAYLOAD];
-        struct ps_sockaddr peer;
-        ssize_t length = ps_recvfrom(fd, payload, sizeof(payload), &peer);
-        if (length == -EAGAIN) { client_wait(); continue; }
-        if (length < 0) { rc = client_error("receive", (int)length); break; }
-        ssize_t sent = ps_sendto(fd, payload, (size_t)length, &peer);
-        if (sent < 0) { rc = client_error("send", (int)sent); break; }
+        uint8_t payload[PS_DGRAM_BATCH_MAX][PS_DGRAM_MAX_PAYLOAD];
+        struct ps_mmsg messages[PS_DGRAM_BATCH_MAX];
+        for (unsigned i = 0; i < PS_DGRAM_BATCH_MAX; i++)
+            messages[i] = (struct ps_mmsg){ .data = payload[i], .len = sizeof(payload[i]) };
+        int received = ps_recvmmsg(fd, messages, PS_DGRAM_BATCH_MAX);
+        if (received == -EAGAIN) { client_wait(); continue; }
+        if (received < 0) { rc = client_error("receive", received); break; }
+        unsigned sent = 0;
+        while (sent < (unsigned)received && !client_stopping) {
+            int n = ps_sendmmsg(fd, messages + sent, (unsigned)received - sent);
+            if (n == -EAGAIN) { client_wait(); continue; }
+            if (n < 0) { rc = client_error("send", n); break; }
+            sent += (unsigned)n;
+        }
+        if (rc) break;
     }
     ps_close(fd);
     ps_fini();

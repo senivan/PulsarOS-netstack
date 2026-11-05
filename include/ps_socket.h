@@ -9,6 +9,7 @@
 #define PS_SOCK_DGRAM 2
 #define PS_DGRAM_QUEUE_SIZE 16
 #define PS_DGRAM_MAX_PAYLOAD 1472
+#define PS_DGRAM_BATCH_MAX 16
 
 typedef int ps_fd_t;
 
@@ -34,6 +35,15 @@ int ps_bind(ps_fd_t fd, const struct ps_sockaddr *addr);
 ssize_t ps_sendto(ps_fd_t fd, const void *buf, size_t len, const struct ps_sockaddr *dst);
 /* -EAGAIN when empty; -EMSGSIZE leaves a datagram queued. */
 ssize_t ps_recvfrom(ps_fd_t fd, void *buf, size_t len, struct ps_sockaddr *src);
+struct ps_mmsg { void *data; size_t len; struct ps_sockaddr addr; };
+/* Datagram batches return a processed prefix count, or negative errno if none.
+ * At most 16 messages and 8192 encoded bytes per call; no waiting for a full batch.
+ * Receive len is buffer capacity on entry, datagram length on success; addr is
+ * destination for sends and source for receives. Remaining entries are untouched.
+ * An undersized receive buffer leaves that datagram queued. Older daemons return
+ * -EOPNOTSUPP. Buffers remain caller-owned and existing single-message calls work. */
+int ps_sendmmsg(ps_fd_t fd, const struct ps_mmsg *messages, unsigned count);
+int ps_recvmmsg(ps_fd_t fd, struct ps_mmsg *messages, unsigned count);
 /* Stream connect returns -EINPROGRESS; repeat returns -EALREADY while pending
  * or -EISCONN when established. Datagram connect sets a peer/filter. */
 int ps_connect(ps_fd_t fd, const struct ps_sockaddr *addr);

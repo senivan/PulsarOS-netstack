@@ -97,7 +97,8 @@ static void submit_client(struct daemon_service *service, struct daemon_client *
     struct ipc_message *m = &c->input;
     if (!c->hello) {
         if (m->op != IPC_HELLO) { disconnect_client(c); return; }
-        struct ipc_message response = { .op = m->op, .id = m->id, .a = (int32_t)service->max_sockets };
+        struct ipc_message response = { .op = m->op, .id = m->id,
+            .a = (int32_t)service->max_sockets, .b = IPC_FEATURE_DGRAM_BATCH };
         c->hello = 1;
         reply(c, &response);
         return;

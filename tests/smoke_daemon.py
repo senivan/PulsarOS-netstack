@@ -79,6 +79,10 @@ def udp_echo(port):
         peer.connect(('192.0.2.2', port))
         peer.send(payload)
         assert peer.recv(2048) == payload
+        burst = [bytes([i]) * (1472 if i % 3 == 0 and i else i * 61) for i in range(16)]
+        for data in burst:
+            peer.send(data)
+        assert [peer.recv(2048) for _ in burst] == burst
 
 
 def tcp_echo(port):
@@ -217,6 +221,11 @@ with socket.socket(socket.AF_INET, socket.SOCK_STREAM if kind == 'tcp' else sock
                 payload = bytes(range(256)) * 5 + b'fragmented IPC payload'
                 result, _ = a.call(9, fd=a1, address=0xc0000201, port=9200, payload=payload, fragmented=True)
                 assert result == len(payload) and receiver.recv(2048) == payload
+                record = struct.pack('!III', 0xc0000201, 9200, 3) + b'abc'
+                invalid = struct.pack('!III', 0xc0000201, 0, 0)
+                assert a.call(12, fd=a1, a=2, payload=record + invalid)[0] == 1
+                assert receiver.recv(2048) == b'abc'
+                assert a.call(12, fd=a1, a=2, payload=record + invalid[:-1])[0] == -errno.EINVAL
         finally:
             a.close()
             b.close()

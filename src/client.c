@@ -1,5 +1,6 @@
 #define _POSIX_C_SOURCE 200809L
 #include <errno.h>
+#include <arpa/inet.h>
 #include <fcntl.h>
 #include <limits.h>
 #include <poll.h>
@@ -11,7 +12,7 @@
 #include "ipc.h"
 
 /* Only client-side session state is process-local. Transport state is remote. */
-static struct { int fd, error; uint32_t next_id; pid_t pid; } client = { .fd = -1 };
+static struct { int fd, error; uint32_t next_id, features; pid_t pid; } client = { .fd = -1 };
 
 static int64_t milliseconds(void)
 {
@@ -106,6 +107,7 @@ int ps_init(const char *path)
     struct ipc_message m = { .op = IPC_HELLO };
     rc = request(&m);
     if (rc) return broken(rc);
+    client.features = (uint32_t)m.b;
     return 0;
 }
 
@@ -115,6 +117,7 @@ void ps_fini(void)
     client.fd = -1;
     client.error = 0;
     client.next_id = 0;
+    client.features = 0;
     client.pid = getpid();
 }
 
@@ -186,4 +189,65 @@ ssize_t ps_recvfrom(ps_fd_t fd, void *buf, size_t len, struct ps_sockaddr *src)
 {
     if (!src) return -EINVAL;
     return recv_request(IPC_RECVFROM, fd, buf, len, src);
+}
+
+static int batch_valid(const struct ps_mmsg *messages, unsigned count)
+{
+    if (client.pid != getpid()) { ps_fini(); return -ENOTCONN; }
+    if (client.fd < 0) return client.error ? client.error : -ENOTCONN;
+    if (!messages || !count || count > PS_DGRAM_BATCH_MAX) return -EINVAL;
+    if (!(client.features & IPC_FEATURE_DGRAM_BATCH)) return -EOPNOTSUPP;
+    return 0;
+}
+
+int ps_sendmmsg(ps_fd_t fd, const struct ps_mmsg *messages, unsigned count)
+{
+    int error = batch_valid(messages, count);
+    if (error) return error;
+    struct ipc_message m = { .op = IPC_SENDMMSG, .fd = fd };
+    for (unsigned i = 0; i < count; i++) {
+        const struct ps_mmsg *message = &messages[i];
+        if (!message->data && message->len) return -EINVAL;
+        if (message->len > PS_DGRAM_MAX_PAYLOAD) return -EMSGSIZE;
+        if (IPC_DGRAM_HEADER + message->len > IPC_PAYLOAD_MAX - m.length) break;
+        ipc_datagram_encode(m.data + m.length, &message->addr, (uint32_t)message->len);
+        if (message->len) memcpy(m.data + m.length + IPC_DGRAM_HEADER, message->data, message->len);
+        m.length += IPC_DGRAM_HEADER + (uint32_t)message->len;
+        m.a++;
+    }
+    unsigned encoded = (unsigned)m.a;
+    int result = request(&m);
+    if (result >= 0 && (!result || (unsigned)result > encoded || m.length)) return broken(-EPROTO);
+    return result;
+}
+
+int ps_recvmmsg(ps_fd_t fd, struct ps_mmsg *messages, unsigned count)
+{
+    int error = batch_valid(messages, count);
+    if (error) return error;
+    struct ipc_message m = { .op = IPC_RECVMMSG, .fd = fd, .a = (int32_t)count, .length = count * 4 };
+    for (unsigned i = 0; i < count; i++) {
+        if (!messages[i].data && messages[i].len) return -EINVAL;
+        uint32_t capacity = htonl(messages[i].len > PS_DGRAM_MAX_PAYLOAD ? PS_DGRAM_MAX_PAYLOAD : (uint32_t)messages[i].len);
+        memcpy(m.data + i * 4, &capacity, 4);
+    }
+    int result = request(&m);
+    if (result < 0) return result;
+    if (!result || (unsigned)result > count) return broken(-EPROTO);
+    unsigned offsets[PS_DGRAM_BATCH_MAX], used = 0;
+    uint32_t lengths[PS_DGRAM_BATCH_MAX];
+    struct ps_sockaddr sources[PS_DGRAM_BATCH_MAX];
+    for (int i = 0; i < result; i++) {
+        offsets[i] = used + IPC_DGRAM_HEADER;
+        if (ipc_datagram_decode(m.data + used, m.length - used, &sources[i], &lengths[i]) ||
+            lengths[i] > messages[i].len) return broken(-EPROTO);
+        used += IPC_DGRAM_HEADER + lengths[i];
+    }
+    if (used != m.length) return broken(-EPROTO);
+    for (int i = 0; i < result; i++) {
+        if (lengths[i]) memcpy(messages[i].data, m.data + offsets[i], lengths[i]);
+        messages[i].len = lengths[i];
+        messages[i].addr = sources[i];
+    }
+    return result;
 }

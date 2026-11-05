@@ -47,6 +47,15 @@ static void framing(void)
     assert(ipc_request_valid(&original));
     original.op = IPC_CLEANUP;
     assert(!ipc_request_valid(&original));
+    original = (struct ipc_message){ .op = IPC_RECVMMSG, .a = PS_DGRAM_BATCH_MAX,
+        .length = PS_DGRAM_BATCH_MAX * 4 };
+    assert(ipc_request_valid(&original));
+    original.a++;
+    assert(!ipc_request_valid(&original));
+    original.a = 1; original.length = 3;
+    assert(!ipc_request_valid(&original));
+    original.op = IPC_SENDMMSG; original.length = IPC_DGRAM_HEADER;
+    assert(ipc_request_valid(&original));
 }
 
 static void read_all(int fd, void *data, size_t length)
@@ -105,6 +114,24 @@ static void client_test(const char *path)
     memset(data, 0, sizeof(data));
     assert(ps_recv(fd, data, sizeof(data)) == (ssize_t)sizeof(data));
     for (unsigned i = 0; i < sizeof(data); i++) assert(data[i] == (uint8_t)i);
+    uint8_t payload[PS_DGRAM_BATCH_MAX][PS_DGRAM_MAX_PAYLOAD];
+    struct ps_mmsg batch[PS_DGRAM_BATCH_MAX];
+    for (unsigned i = 0; i < PS_DGRAM_BATCH_MAX; i++) {
+        memset(payload[i], (int)(0xa0 + i), sizeof(payload[i]));
+        batch[i] = (struct ps_mmsg){ .data = payload[i], .len = sizeof(payload[i]),
+            .addr = { .ip_be = inet_addr("192.0.2.1"), .port = (uint16_t)(9000 + i) } };
+    }
+    assert(ps_sendmmsg(fd, batch, 0) == -EINVAL);
+    assert(ps_sendmmsg(fd, batch, PS_DGRAM_BATCH_MAX + 1) == -EINVAL);
+    assert(ps_sendmmsg(fd, batch, PS_DGRAM_BATCH_MAX) == 3);
+    assert(batch[0].len == PS_DGRAM_MAX_PAYLOAD);
+    batch[0].len = 128; batch[1].len = 0;
+    assert(ps_recvmmsg(fd, batch, 3) == 2);
+    assert(batch[0].len == 3 && !memcmp(batch[0].data, "abc", 3) && batch[0].addr.port == 1111);
+    assert(batch[1].len == 0 && batch[1].addr.port == 2222);
+    assert(batch[2].len == PS_DGRAM_MAX_PAYLOAD && payload[2][0] == 0xa2);
+    batch[0].len = 2;
+    assert(ps_recvmmsg(fd, batch, 1) == -EMSGSIZE && batch[0].len == 2);
     assert(ps_close(fd) == -EPROTO);
     assert(ps_socket(PS_AF_INET, PS_SOCK_STREAM, 0) == -ECONNRESET);
     ps_fini();
@@ -129,6 +156,7 @@ int main(void)
     struct timeval timeout = { .tv_sec = 10 };
     assert(!setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout)));
     struct ipc_message m = read_request(fd, IPC_HELLO);
+    m.b = IPC_FEATURE_DGRAM_BATCH;
     fragmented_response(fd, &m);
     m = read_request(fd, IPC_SOCKET);
     assert(m.a == PS_AF_INET && m.b == PS_SOCK_STREAM && !m.c);
@@ -147,12 +175,88 @@ int main(void)
     m.result = (int32_t)(m.length = IPC_PAYLOAD_MAX);
     for (unsigned i = 0; i < m.length; i++) m.data[i] = (uint8_t)i;
     fragmented_response(fd, &m);
+    m = read_request(fd, IPC_SENDMMSG);
+    assert(m.a == 5 && m.length == 5 * (IPC_DGRAM_HEADER + PS_DGRAM_MAX_PAYLOAD));
+    unsigned used = 0;
+    for (unsigned i = 0; i < 5; i++) {
+        struct ps_sockaddr dst;
+        uint32_t length;
+        assert(!ipc_datagram_decode(m.data + used, m.length - used, &dst, &length));
+        assert(dst.ip_be == inet_addr("192.0.2.1") && dst.port == 9000 + i && length == PS_DGRAM_MAX_PAYLOAD);
+        for (unsigned j = 0; j < length; j++) assert(m.data[used + IPC_DGRAM_HEADER + j] == 0xa0 + i);
+        used += IPC_DGRAM_HEADER + length;
+    }
+    m.result = 3; m.length = 0;
+    fragmented_response(fd, &m);
+    m = read_request(fd, IPC_RECVMMSG);
+    assert(m.a == 3 && m.length == 12);
+    uint32_t capacity;
+    memcpy(&capacity, m.data, 4);
+    assert(ntohl(capacity) == 128);
+    memcpy(&capacity, m.data + 4, 4);
+    assert(ntohl(capacity) == 0);
+    struct ps_sockaddr peer = { .ip_be = inet_addr("192.0.2.1"), .port = 1111 };
+    ipc_datagram_encode(m.data, &peer, 3);
+    memcpy(m.data + IPC_DGRAM_HEADER, "abc", 3);
+    peer.port = 2222;
+    ipc_datagram_encode(m.data + IPC_DGRAM_HEADER + 3, &peer, 0);
+    m.length = 2 * IPC_DGRAM_HEADER + 3; m.result = 2;
+    fragmented_response(fd, &m);
+    m = read_request(fd, IPC_RECVMMSG);
+    m.result = -EMSGSIZE; m.length = 0;
+    fragmented_response(fd, &m);
     m = read_request(fd, IPC_CLOSE);
     m.id++;
     fragmented_response(fd, &m);
     close(fd);
     int status;
     assert(waitpid(child, &status, 0) == child && WIFEXITED(status) && !WEXITSTATUS(status));
+    child = fork();
+    assert(child >= 0);
+    if (!child) {
+        close(listener);
+        assert(ps_init(address.sun_path) == 0);
+        uint8_t buffers[2][16];
+        memset(buffers, 0x5a, sizeof(buffers));
+        struct ps_mmsg batch[2] = {{ .data = buffers[0], .len = 16 }, { .data = buffers[1], .len = 16 }};
+        assert(ps_recvmmsg(7, batch, 2) == -EPROTO);
+        assert(buffers[0][0] == 0x5a && buffers[1][0] == 0x5a && batch[0].len == 16);
+        assert(ps_recvmmsg(7, batch, 2) == -ECONNRESET);
+        ps_fini(); exit(0);
+    }
+    fd = accept(listener, NULL, NULL);
+    assert(fd >= 0);
+    m = read_request(fd, IPC_HELLO);
+    m.b = IPC_FEATURE_DGRAM_BATCH;
+    fragmented_response(fd, &m);
+    m = read_request(fd, IPC_RECVMMSG);
+    ipc_datagram_encode(m.data, &peer, 3);
+    memcpy(m.data + IPC_DGRAM_HEADER, "abc", 3);
+    ipc_datagram_encode(m.data + IPC_DGRAM_HEADER + 3, &peer, 10);
+    m.length = 2 * IPC_DGRAM_HEADER + 3; m.result = 2;
+    fragmented_response(fd, &m);
+    assert(waitpid(child, &status, 0) == child && WIFEXITED(status) && !WEXITSTATUS(status));
+    close(fd);
+    child = fork();
+    assert(child >= 0);
+    if (!child) {
+        close(listener);
+        assert(ps_init(address.sun_path) == 0);
+        struct ps_mmsg batch = {0};
+        assert(ps_recvmmsg(7, &batch, 1) == -EOPNOTSUPP);
+        assert(ps_sendmmsg(7, &batch, 1) == -EOPNOTSUPP);
+        assert(ps_socket(PS_AF_INET, PS_SOCK_DGRAM, 0) == 9);
+        ps_fini(); exit(0);
+    }
+    fd = accept(listener, NULL, NULL);
+    assert(fd >= 0);
+    m = read_request(fd, IPC_HELLO);
+    fragmented_response(fd, &m);
+    m = read_request(fd, IPC_SOCKET);
+    m.result = 9;
+    fragmented_response(fd, &m);
+    assert(waitpid(child, &status, 0) == child && WIFEXITED(status) && !WEXITSTATUS(status));
+    close(fd);
     pid_t stalled = fork();
     assert(stalled >= 0);
     if (!stalled) {
