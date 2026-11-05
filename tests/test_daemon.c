@@ -1,9 +1,11 @@
 #define _GNU_SOURCE
 #include <assert.h>
+#include <arpa/inet.h>
 #include <errno.h>
 #include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <poll.h>
 #include <sys/eventfd.h>
 #include <unistd.h>
@@ -33,6 +35,70 @@ static void *produce(void *unused)
     return NULL;
 }
 
+static void batches(void)
+{
+    int fd = dispatch(1, IPC_SOCKET, 0, PS_SOCK_DGRAM).result;
+    assert(dispatch(1, IPC_BIND, fd, 9001).result == 0);
+    struct ps_sockaddr peer = { .ip_be = inet_addr("192.0.2.1"), .port = 1234 };
+    struct daemon_item in = { .owner = 1, .message = { .op = IPC_RECVMMSG, .id = 1,
+        .fd = fd, .a = 3, .length = 12 } }, out;
+    uint32_t cap = htonl(PS_DGRAM_MAX_PAYLOAD);
+    for (unsigned i = 0; i < 3; i++) memcpy(in.message.data + i * 4, &cap, 4);
+    assert(udp_deliver(&rt, 0, 9001, &peer, "", 0) == 0);
+    assert(udp_deliver(&rt, 0, 9001, &peer, "abc", 3) == 0);
+    in.owner = 2;
+    daemon_dispatch(&rt, &in, &out);
+    assert(out.message.result == -EBADF && socket_lookup(&rt, fd)->transport.udp.count == 2);
+    in.owner = 1;
+    daemon_dispatch(&rt, &in, &out);
+    assert(out.message.result == 2 && !socket_lookup(&rt, fd)->transport.udp.count);
+    struct ps_sockaddr source;
+    uint32_t length;
+    assert(!ipc_datagram_decode(out.message.data, out.message.length, &source, &length));
+    assert(!length && source.ip_be == peer.ip_be && source.port == peer.port);
+    assert(!ipc_datagram_decode(out.message.data + 12, out.message.length - 12, &source, &length));
+    assert(length == 3 && !memcmp(out.message.data + 24, "abc", 3));
+    daemon_dispatch(&rt, &in, &out);
+    assert(out.message.result == -EAGAIN);
+    uint8_t payload[PS_DGRAM_MAX_PAYLOAD] = {0};
+    for (unsigned i = 0; i < PS_DGRAM_BATCH_MAX; i++) assert(!udp_deliver(&rt, 0, 9001, &peer, payload, sizeof(payload)));
+    in.message.a = PS_DGRAM_BATCH_MAX;
+    in.message.length = PS_DGRAM_BATCH_MAX * 4;
+    for (unsigned i = 0; i < PS_DGRAM_BATCH_MAX; i++) memcpy(in.message.data + i * 4, &cap, 4);
+    cap = htonl(PS_DGRAM_MAX_PAYLOAD + 1);
+    memcpy(in.message.data, &cap, 4);
+    daemon_dispatch(&rt, &in, &out);
+    assert(out.message.result == -EINVAL && socket_lookup(&rt, fd)->transport.udp.count == 16);
+    cap = htonl(1);
+    memcpy(in.message.data, &cap, 4);
+    daemon_dispatch(&rt, &in, &out);
+    assert(out.message.result == -EMSGSIZE && socket_lookup(&rt, fd)->transport.udp.count == 16);
+    cap = htonl(PS_DGRAM_MAX_PAYLOAD);
+    memcpy(in.message.data, &cap, 4);
+    daemon_dispatch(&rt, &in, &out);
+    assert(out.message.result == 5 && out.message.length == 5 * (IPC_DGRAM_HEADER + PS_DGRAM_MAX_PAYLOAD));
+    assert(socket_lookup(&rt, fd)->transport.udp.count == 11);
+    in.message.op = IPC_SENDMMSG;
+    in.message.a = 2;
+    in.message.length = 2 * IPC_DGRAM_HEADER;
+    ipc_datagram_encode(in.message.data, &peer, 0);
+    ipc_datagram_encode(in.message.data + IPC_DGRAM_HEADER, &peer, 1);
+    uint64_t drops = rt.graph.nodes[NODE_UDP_OUTPUT].stats.drops;
+    daemon_dispatch(&rt, &in, &out);
+    assert(out.message.result == -EINVAL && rt.graph.nodes[NODE_UDP_OUTPUT].stats.drops == drops);
+    in.message.length = IPC_DGRAM_HEADER;
+    in.message.a = 1;
+    peer.port = 0;
+    ipc_datagram_encode(in.message.data, &peer, 0);
+    daemon_dispatch(&rt, &in, &out);
+    assert(out.message.result == -EINVAL);
+    int stream = dispatch(1, IPC_SOCKET, 0, PS_SOCK_STREAM).result;
+    in.message.fd = stream;
+    daemon_dispatch(&rt, &in, &out);
+    assert(out.message.result == -EOPNOTSUPP);
+    assert(core_close(&rt, stream) == 0 && core_close(&rt, fd) == 0);
+}
+
 int main(void)
 {
     daemon_queue_init(&queue);
@@ -53,6 +119,7 @@ int main(void)
     assert(!pthread_join(producer, NULL));
 
     assert(!socket_subsystem_init(&rt));
+    batches();
     int a = dispatch(1, IPC_SOCKET, 0, PS_SOCK_DGRAM).result;
     int b = dispatch(2, IPC_SOCKET, 0, PS_SOCK_DGRAM).result;
     assert(a > 0 && b > 0 && a != b);

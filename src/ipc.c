@@ -31,8 +31,35 @@ int ipc_decode(const uint8_t header[IPC_HEADER_SIZE], struct ipc_message *m)
 
 int ipc_request_valid(const struct ipc_message *m)
 {
-    if (m->op < IPC_HELLO || m->op > IPC_CLOSE || m->result) return 0;
-    if (m->op != IPC_SEND && m->op != IPC_SENDTO && m->length) return 0;
+    if (m->op < IPC_HELLO || m->op > IPC_RECVMMSG || m->result || m->length > IPC_PAYLOAD_MAX) return 0;
+    if (m->op != IPC_SEND && m->op != IPC_SENDTO && m->op != IPC_SENDMMSG && m->op != IPC_RECVMMSG && m->length) return 0;
     if ((m->op == IPC_RECV || m->op == IPC_RECVFROM) && (m->a < 0 || m->a > IPC_PAYLOAD_MAX)) return 0;
+    if (m->op == IPC_SENDMMSG || m->op == IPC_RECVMMSG) {
+        if (m->a < 1 || m->a > PS_DGRAM_BATCH_MAX) return 0;
+        if (m->op == IPC_RECVMMSG && m->length != (uint32_t)m->a * 4) return 0;
+        if (m->op == IPC_SENDMMSG && m->length < (uint32_t)m->a * IPC_DGRAM_HEADER) return 0;
+    }
     return 1;
+}
+
+void ipc_datagram_encode(uint8_t *data, const struct ps_sockaddr *addr, uint32_t length)
+{
+    uint32_t port = htonl(addr->port), size = htonl(length);
+    memcpy(data, &addr->ip_be, 4);
+    memcpy(data + 4, &port, 4);
+    memcpy(data + 8, &size, 4);
+}
+
+int ipc_datagram_decode(const uint8_t *data, size_t available, struct ps_sockaddr *addr, uint32_t *length)
+{
+    if (available < IPC_DGRAM_HEADER) return -EPROTO;
+    uint32_t port, size;
+    memcpy(&port, data + 4, 4);
+    memcpy(&size, data + 8, 4);
+    port = ntohl(port); size = ntohl(size);
+    if (port > UINT16_MAX || size > PS_DGRAM_MAX_PAYLOAD || size > available - IPC_DGRAM_HEADER) return -EPROTO;
+    memcpy(&addr->ip_be, data, 4);
+    addr->port = (uint16_t)port;
+    *length = size;
+    return 0;
 }
