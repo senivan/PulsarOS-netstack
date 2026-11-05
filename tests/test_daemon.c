@@ -4,6 +4,9 @@
 #include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <poll.h>
+#include <sys/eventfd.h>
+#include <unistd.h>
 #include "daemon.h"
 #include "runtime.h"
 
@@ -75,6 +78,8 @@ int main(void)
 
     struct daemon_service *service = calloc(1, sizeof(*service));
     assert(service);
+    service->response_fd = eventfd(0, EFD_NONBLOCK | EFD_CLOEXEC);
+    assert(service->response_fd >= 0);
     daemon_queue_init(&service->requests);
     daemon_queue_init(&service->responses);
     for (unsigned i = 0; i < DAEMON_QUEUE_SIZE; i++) assert(!daemon_queue_push(&service->responses, &item));
@@ -82,8 +87,29 @@ int main(void)
         .a = PS_AF_INET, .b = PS_SOCK_DGRAM } };
     assert(!daemon_queue_push(&service->requests, &item));
     assert(!daemon_progress(service, &rt));
+    struct pollfd notification = { .fd = service->response_fd, .events = POLLIN };
+    assert(poll(&notification, 1, 0) == 0);
     assert(!daemon_queue_pop(&service->responses, &item));
     assert(daemon_progress(service, &rt) == 1);
+    assert(poll(&notification, 1, 0) == 1 && (notification.revents & POLLIN));
+    uint64_t wakes;
+    assert(read(service->response_fd, &wakes, sizeof(wakes)) == sizeof(wakes) && wakes == 1);
+    for (unsigned i = 0; i < DAEMON_QUEUE_SIZE; i++) assert(!daemon_queue_pop(&service->responses, &item));
+    assert(item.message.id == 5 && item.message.result > 0);
+    item.message.result = 0;
+    item.message.id++;
+    assert(!daemon_queue_push(&service->requests, &item));
+    assert(daemon_progress(service, &rt) == 1);
+    assert(read(service->response_fd, &wakes, sizeof(wakes)) == sizeof(wakes) && wakes == 1);
+    assert(!daemon_queue_pop(&service->responses, &item));
+    wakes = UINT64_MAX - 1;
+    assert(write(service->response_fd, &wakes, sizeof(wakes)) == sizeof(wakes));
+    item.message.result = 0;
+    item.message.id++;
+    assert(!daemon_queue_push(&service->requests, &item) && daemon_progress(service, &rt) == 1);
+    assert(!atomic_load(&service->failed));
+    assert(read(service->response_fd, &wakes, sizeof(wakes)) == sizeof(wakes) && wakes == UINT64_MAX - 1);
+    close(service->response_fd);
     free(service);
     dispatch(1, IPC_CLEANUP, 0, 0);
     socket_subsystem_fini(&rt);

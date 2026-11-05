@@ -6,6 +6,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <sys/file.h>
+#include <sys/eventfd.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
 #include <sys/syscall.h>
@@ -189,6 +190,8 @@ static void *control_run(void *arg)
     struct daemon_service *service = arg;
     pthread_setaffinity_np(pthread_self(), sizeof(service->control_cpus), &service->control_cpus);
     for (;;) {
+        uint64_t notifications;
+        while (read(service->response_fd, &notifications, sizeof(notifications)) < 0 && errno == EINTR) {}
         collect_responses(service);
         int stopping = atomic_load_explicit(&service->stopping, memory_order_acquire);
         if (stopping && service->listener >= 0) {
@@ -205,9 +208,10 @@ static void *control_run(void *arg)
             submit_client(service, c);
         }
         if (stopping && !live) break;
-        struct pollfd fds[2 * DAEMON_CLIENT_MAX + 1];
-        unsigned indices[2 * DAEMON_CLIENT_MAX + 1], count = 1;
+        struct pollfd fds[2 * DAEMON_CLIENT_MAX + 2];
+        unsigned indices[2 * DAEMON_CLIENT_MAX + 2], count = 2;
         fds[0] = (struct pollfd){ .fd = stopping ? -1 : service->listener, .events = POLLIN };
+        fds[1] = (struct pollfd){ .fd = service->response_fd, .events = POLLIN };
         for (unsigned i = 0; i < service->max_clients; i++) {
             struct daemon_client *c = &service->clients[i];
             if (c->fd < 0) continue;
@@ -232,7 +236,11 @@ static void *control_run(void *arg)
             atomic_store(&service->failed, 1);
             atomic_store(&service->stopping, 1);
         }
-        for (unsigned n = 1; n < count; n++) {
+        if (fds[1].revents & (POLLERR | POLLHUP | POLLNVAL)) {
+            atomic_store(&service->failed, 1);
+            atomic_store(&service->stopping, 1);
+        }
+        for (unsigned n = 2; n < count; n++) {
             struct daemon_client *c = &service->clients[indices[n] % DAEMON_CLIENT_MAX];
             if (indices[n] >= DAEMON_CLIENT_MAX) {
                 if (fds[n].revents) disconnect_client(c);
@@ -251,7 +259,7 @@ static void *control_run(void *arg)
 int daemon_prepare(struct daemon_service *service, const char *path, unsigned max_clients, unsigned max_sockets)
 {
     memset(service, 0, sizeof(*service));
-    service->listener = service->lock_fd = -1;
+    service->listener = service->lock_fd = service->response_fd = -1;
     atomic_init(&service->stopping, 0);
     atomic_init(&service->done, 0);
     atomic_init(&service->failed, 0);
@@ -265,6 +273,8 @@ int daemon_prepare(struct daemon_service *service, const char *path, unsigned ma
     }
     if (!max_clients || max_clients > DAEMON_CLIENT_MAX || !max_sockets || max_sockets > DAEMON_SOCKET_MAX ||
         !*path || strlen(path) >= sizeof(service->path)) return -EINVAL;
+    service->response_fd = eventfd(0, EFD_NONBLOCK | EFD_CLOEXEC);
+    if (service->response_fd < 0) return -errno;
     service->max_clients = max_clients;
     service->max_sockets = max_sockets;
     memcpy(service->path, path, strlen(path) + 1);
@@ -310,6 +320,7 @@ int daemon_start(struct daemon_service *service)
 
 void daemon_release(struct daemon_service *service)
 {
+    if (service->response_fd >= 0) close(service->response_fd);
     if (service->listener >= 0) close(service->listener);
     struct stat info;
     if (service->socket_inode && !lstat(service->path, &info) &&
