@@ -11,6 +11,7 @@ int socket_subsystem_init(struct app_runtime *rt)
     memset(&rt->sockets, 0, sizeof(rt->sockets));
     rt->sockets.next_port = 49152;
     rt->sockets.capacity = PS_SOCKET_MAX;
+    rt->tcp_timer_next = 0;
     return 0;
 }
 

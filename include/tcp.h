@@ -44,6 +44,8 @@ ssize_t tcp_recv(struct app_runtime *, struct ps_socket_entry *, void *, size_t)
 enum drop_reason tcp_input(struct app_runtime *, const struct packet_ctx *, const struct rte_tcp_hdr *,
                            uint16_t header_len, uint16_t payload_len, uint16_t mss, uint64_t now);
 void tcp_tick(struct app_runtime *, uint64_t now);
+/* Runtime timer scans run at most once per millisecond; deadlines remain absolute. */
+void tcp_timer_progress(struct app_runtime *, uint64_t now);
 void tcp_kick(struct app_runtime *, struct ps_socket_entry *, uint64_t now);
 void tcp_fail(struct app_runtime *, struct ps_socket_entry *, int error);
 void tcp_time_wait(struct ps_socket_entry *, uint64_t now);
