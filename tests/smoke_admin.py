@@ -4,6 +4,7 @@ import argparse
 import errno
 import json
 import os
+import shutil
 import signal
 import socket
 import struct
@@ -31,8 +32,8 @@ def main():
     with tempfile.TemporaryDirectory(prefix='pulsaros-admin-') as tmp, ExitStack() as resources:
         directory = args.artifacts or Path(tmp)
         directory.mkdir(parents=True, exist_ok=True)
-        # Permit an unprivileged client to reach the application IPC socket.
-        os.chmod(directory, 0o755)
+        # Keep unprivileged clients independent of checkout permissions.
+        os.chmod(tmp, 0o755)
         subprocess.run(['sysctl', '-qw', 'net.ipv6.conf.all.disable_ipv6=1'], check=True)
         subprocess.run(['sysctl', '-qw', 'net.ipv4.ip_forward=0'], check=True)
         remote = Namespace(resources)
@@ -52,10 +53,12 @@ def main():
                 ip('addr', 'add', '192.0.2.1/24', 'dev', peer)
                 ip('addr', 'add', '10.10.0.254/24', 'dev', peer)
                 subprocess.run(['ethtool', '-K', peer, 'tx', 'off', 'rx', 'off'], check=True, capture_output=True)
-        config = directory / 'stack.conf'
+        config = Path(tmp) / 'stack.conf'
         config.write_text(f'lcore={min(os.sched_getaffinity(0))}\nno_huge=1\nipv4_forwarding=1\n' + ''.join(
             f'[interface]\npmd=af_packet\ndevice=ma-host{i}\nip={address}/24\n'
             for i, address in enumerate(('192.0.2.2', '198.51.100.2'))))
+        if directory != config.parent:
+            shutil.copyfile(config, directory / 'stack.conf')
         log = resources.enter_context((directory / 'daemon.log').open('w+'))
         daemon = Daemon(build / 'pulsarosd', config, log)
         resources.callback(daemon.stop, False)
@@ -270,13 +273,18 @@ s.close()
             assert json.loads(read_exact(partial, header[3]))['generation'] == before
         if os.geteuid() == 0:
             # Filesystem authorization, then peer-credential authorization even if chmod is relaxed.
+            unprivileged_cli = Path(tmp) / 'pulsar'
+            shutil.copyfile(build / 'pulsar', unprivileged_cli)
+            unprivileged_cli.chmod(0o755)
             drop_privileges = lambda: (os.setgroups([]), os.setgid(65534), os.setuid(65534))
-            denied = subprocess.run([str(build/'pulsar'), '--socket', admin, 'status'], preexec_fn=drop_privileges, capture_output=True)
-            assert denied.returncode != 0
+            denied = subprocess.run([str(unprivileged_cli), '--socket', admin, 'status'], preexec_fn=drop_privileges, capture_output=True, timeout=10)
+            assert denied.returncode == 1 and os.strerror(errno.EACCES).encode() in denied.stderr, denied.stderr
             os.chmod(admin, 0o666)
-            denied = subprocess.run([str(build/'pulsar'), '--socket', admin, 'status'], preexec_fn=drop_privileges, capture_output=True)
-            assert denied.returncode != 0
-            os.chmod(admin, 0o600)
+            try:
+                denied = subprocess.run([str(unprivileged_cli), '--socket', admin, 'status'], preexec_fn=drop_privileges, capture_output=True, timeout=10)
+                assert denied.returncode == 1 and any(os.strerror(error).encode() in denied.stderr for error in (errno.ECONNRESET, errno.EPIPE)), denied.stderr
+            finally:
+                os.chmod(admin, 0o600)
             code = "import socket,struct; s=socket.socket(socket.AF_UNIX); s.connect(%r); s.sendall(struct.pack('!16I',0x50534e53,1,1,1,0,0,0,0,0,0,0,0,0,0,0,0)); assert len(s.recv(64))==64" % daemon.path
             assert subprocess.run(['python3', '-c', code], preexec_fn=drop_privileges).returncode == 0
         # A filtered monitor must report overwritten history even when no retained event matches.
