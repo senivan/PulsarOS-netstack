@@ -40,13 +40,14 @@ struct daemon_client {
 
 /* The control thread exclusively owns listener, clients, maps and IPC buffers.
  * The worker exclusively owns app_runtime. Only queues and atomic flags cross
- * threads; startup/join bracket access to the remaining service metadata. */
+ * threads; response_fd wakes control after publication and is closed after join.
+ * Startup/join bracket access to the remaining service metadata. */
 struct daemon_identity { atomic_uint_fast64_t owner; atomic_int pid, uid; };
 struct daemon_service {
     struct daemon_queue requests, responses;
     atomic_int stopping, done, failed;
     pthread_t thread;
-    int listener, lock_fd;
+    int listener, lock_fd, response_fd;
     unsigned max_clients, max_sockets;
     uint64_t next_owner;
     dev_t socket_device;

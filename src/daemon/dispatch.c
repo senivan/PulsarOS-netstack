@@ -1,4 +1,5 @@
 #include <errno.h>
+#include <unistd.h>
 #include "daemon.h"
 #include "runtime.h"
 
@@ -49,6 +50,14 @@ unsigned daemon_progress(struct daemon_service *service, struct app_runtime *rt)
         /* This thread is the sole response producer; room cannot disappear. */
         daemon_queue_push(&service->responses, &response);
         count++;
+    }
+    if (count) {
+        /* Publish before waking the consumer; a saturated eventfd is already readable. */
+        uint64_t notification = 1;
+        ssize_t n;
+        do { n = write(service->response_fd, &notification, sizeof(notification)); }
+        while (n < 0 && errno == EINTR);
+        if (n < 0 && errno != EAGAIN) atomic_store(&service->failed, 1);
     }
     return count;
 }
