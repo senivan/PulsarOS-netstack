@@ -4,6 +4,13 @@
 #include <rte_tcp.h>
 #include "runtime.h"
 
+void tcp_timer_progress(struct app_runtime *rt, uint64_t now)
+{
+    if (now < rt->tcp_timer_next) return;
+    rt->tcp_timer_next = now + RTE_MAX(UINT64_C(1), rte_get_timer_hz() / 1000);
+    tcp_tick(rt, now);
+}
+
 void tcp_tick(struct app_runtime *rt, uint64_t now)
 {
     for (unsigned i = 0; i < rt->sockets.capacity; i++) {

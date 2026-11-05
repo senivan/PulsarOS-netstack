@@ -307,6 +307,32 @@ static void close_and_timeouts(void)
     assert(rte_mempool_avail_count(rt.mbuf_pool) == POOL_SIZE);
 }
 
+static void timer_cadence(void)
+{
+    reset();
+    uint64_t now = rte_get_timer_cycles(), interval = RTE_MAX(UINT64_C(1), rte_get_timer_hz() / 1000);
+    ps_fd_t fd = core_socket(&rt, PS_AF_INET, PS_SOCK_STREAM, 0);
+    struct ps_socket_entry *s = socket_lookup(&rt, fd);
+    s->open = 0;
+    s->transport.tcp.state = TCP_TIME_WAIT;
+    s->transport.tcp.expires = now + interval / 2;
+    tcp_timer_progress(&rt, now);
+    assert(rt.tcp_timer_next == now + interval);
+    tcp_timer_progress(&rt, now + interval - 1);
+    assert(socket_lookup(&rt, fd) && rt.tcp_timer_next == now + interval);
+    tcp_timer_progress(&rt, now + interval);
+    assert(!socket_lookup(&rt, fd));
+    fd = core_socket(&rt, PS_AF_INET, PS_SOCK_STREAM, 0);
+    s = socket_lookup(&rt, fd);
+    s->open = 0;
+    s->transport.tcp.state = TCP_TIME_WAIT;
+    s->transport.tcp.expires = now + interval + 1;
+    tcp_timer_progress(&rt, now + interval + 1);
+    assert(socket_lookup(&rt, fd));
+    tcp_timer_progress(&rt, now + 2 * interval);
+    assert(!socket_lookup(&rt, fd));
+}
+
 static void active_and_windows(void)
 {
     reset();
@@ -518,6 +544,7 @@ int main(void)
     parsing_and_resets();
     handshake_and_data();
     close_and_timeouts();
+    timer_cadence();
     active_and_windows();
     capacity_and_failure_tests();
     lifetime_tests();

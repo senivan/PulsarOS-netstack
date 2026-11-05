@@ -64,7 +64,7 @@ unsigned app_step(struct app_runtime *rt)
     }
     uint64_t now = rte_get_timer_cycles();
     neighbour_tick(rt, now);
-    tcp_tick(rt, now);
+    tcp_timer_progress(rt, now);
     return received;
 }
 

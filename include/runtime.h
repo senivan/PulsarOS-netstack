@@ -35,6 +35,7 @@ struct app_runtime {
     struct neighbour_pending pending_neighbours;
     struct socket_subsystem sockets;
     struct tcp_stats tcp_stats;
+    uint64_t tcp_timer_next;
     struct icmp_error_state icmp_errors;
     uint8_t ipv4_forwarding;
     uint64_t neighbour_learn_failures;
