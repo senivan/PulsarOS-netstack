@@ -1,0 +1,27 @@
+{
+  "baseline_revision": "cf825aa6c9a2cf90bfb86cc62f1e76cdf50aa774",
+  "wakeup_binary_revision": "10163f5c2476d86aafd8e8a5f1772c5062603a12",
+  "final_runtime_revision": "90710d3b0fac1772e3543e04bfba502dda59269c",
+  "repetitions": 7,
+  "duration_seconds": 3,
+  "assignment": {
+    "applications": [
+      4,
+      5,
+      6,
+      7
+    ],
+    "control": 1,
+    "dataplane": 0,
+    "generator": 2,
+    "probe": 4,
+    "receiver": 3
+  },
+  "samples": {
+    "wakeup": 70,
+    "final": 133
+  },
+  "scope": "Virtual AF_PACKET; cohorts not pooled; wakeup phase uses preserved binaries from its named revision.",
+  "csv_sha256": "4ae157a5a3d37f431a8a8b442477abc072ec63d3a659e5ab89bd57a16132adba",
+  "raw_evidence": "bench/results/ipc-followup"
+}
