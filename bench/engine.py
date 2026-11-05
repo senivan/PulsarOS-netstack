@@ -160,6 +160,8 @@ class Engine:
 
     def start_servers(self):
         binary = self.tools / ('bench-pulsar-server' if self.pulsar else 'bench-linux-server')
+        if self.case.batch:
+            binary = self.tools / ('bench-pulsar-batch-server' if self.pulsar else 'bench-linux-batch-server')
         for i in range(self.case.services):
             log = (self.directory / f'server-{i}.log').open('w')
             self.streams.append(log)
