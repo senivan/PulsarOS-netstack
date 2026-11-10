@@ -544,6 +544,7 @@ static void reliability_tests(void)
     input(1234, 11, base + 300, ACK, NULL, 0);
     assert(c->srtt && c->rto >= rte_get_timer_hz());
     uint64_t srtt = c->srtt;
+    assert(c->sample_valid); /* Continue sampling while the pipeline stays busy. */
     old = count;
     for (unsigned i = 0; i < 3; i++) input(1234, 11, c->snd_una, ACK, NULL, 0);
     assert(c->recovery && count == old + 1);
