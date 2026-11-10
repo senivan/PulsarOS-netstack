@@ -585,6 +585,24 @@ static void reliability_tests(void)
     assert(c->flight_len == 20 && !c->persist_deadline);
     input(1234, 11, c->snd_nxt, ACK, NULL, 0);
 
+    /* Persist replies with outstanding bytes must not trigger fast recovery. */
+    assert(core_send(&rt, fd, data, 20) == 20);
+    uint64_t retransmissions = rt.tcp_stats.retransmissions;
+    for (unsigned i = 0; i < 4; i++)
+        inject(packet(PEER, 1234, 9000, 11, c->snd_una, ACK, NULL, 0, 0, 0), DROP_NONE);
+    assert(rt.tcp_stats.retransmissions == retransmissions && !c->recovery);
+    inject(packet(PEER, 1234, 9000, 11, c->snd_nxt, ACK, NULL, 0, 8192, 0), DROP_NONE);
+
+    /* An abandoned zero-window connection must eventually release its slot. */
+    ps_fd_t abandoned = core_accept(&rt, listener, NULL);
+    assert(abandoned > 0);
+    struct ps_socket_entry *orphan = socket_lookup(&rt, abandoned);
+    orphan->transport.tcp.peer_window = 0;
+    assert(core_send(&rt, abandoned, data, 20) == 20);
+    assert(core_close(&rt, abandoned) == 0);
+    tcp_tick(&rt, orphan->transport.tcp.expires);
+    assert(!socket_lookup(&rt, abandoned));
+
     /* Reordered, overlapping and duplicate data preserve the first bytes. */
     c->rcv_nxt = UINT32_MAX - 3;
     base = c->rcv_nxt;
