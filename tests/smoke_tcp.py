@@ -68,6 +68,8 @@ def main():
     packets, processes, links, sockets = [], [], [], []
     daemon = None
     lost = dict(synack=0, data=0, fin=0)
+    reordered = []
+    reorder_done = False
     with tempfile.TemporaryDirectory(prefix='netstack-tcp-') as tmp:
         artifacts = args.artifacts or Path(tmp)
         artifacts.mkdir(parents=True, exist_ok=True)
@@ -91,6 +93,7 @@ def main():
                 sockets.append(sock)
 
             def pump(deadline, drop):
+                nonlocal reorder_done
                 if time.monotonic() > deadline:
                     raise AssertionError('TCP smoke timed out')
                 readable, _, _ = select.select(sockets, [], [], 0.02)
@@ -116,6 +119,14 @@ def main():
                             if kind and not lost[kind]:
                                 lost[kind] = 1
                                 continue
+                            if kind == 'data' and not reorder_done:
+                                if not reordered:
+                                    reordered.append(raw)
+                                    continue
+                                sockets[1].send(raw)
+                                sockets[1].send(reordered.pop())
+                                reorder_done = True
+                                continue
                     sockets[1 if sock is sockets[0] else 0].send(raw)
 
             with (artifacts / 'server.log').open('w+') as log:
@@ -137,6 +148,7 @@ def main():
                 for _ in range(10):
                     pump(deadline, True)
                 assert all(lost.values()), lost
+                assert reorder_done
                 daemon.stop_client(echo)
 
             with (artifacts / 'linux-server.log').open('w+') as linux_log:
@@ -160,7 +172,7 @@ def main():
             output = (artifacts / 'server.log').read_text()
             assert 'timeouts=0' in output and 'established=4' in output, output
             assert 'retransmissions=0' not in output, output
-            print('TCP namespace smoke passed: Linux echo, active open, RST, MTU 600, SYN+ACK/data/FIN loss')
+            print('TCP namespace smoke passed: Linux echo, active open, RST, MTU 600, SYN+ACK/data/FIN loss and data reordering')
         finally:
             if daemon is not None:
                 daemon.stop(check=False)
