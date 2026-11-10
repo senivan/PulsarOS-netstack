@@ -1,6 +1,7 @@
 #include <errno.h>
 #include <limits.h>
 #include <string.h>
+#include <stdlib.h>
 #include <rte_cycles.h>
 #include "runtime.h"
 
@@ -17,6 +18,12 @@ int socket_subsystem_init(struct app_runtime *rt)
 
 void socket_subsystem_fini(struct app_runtime *rt)
 {
+    for (unsigned i = 0; i < rt->sockets.capacity; i++)
+        if (rt->sockets.entries[i].allocated && rt->sockets.entries[i].type == PS_SOCK_STREAM)
+        {
+            free(rt->sockets.entries[i].transport.tcp.tx);
+            free(rt->sockets.entries[i].transport.tcp.ooo);
+        }
     memset(&rt->sockets, 0, sizeof(rt->sockets));
 }
 

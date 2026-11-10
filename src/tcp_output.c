@@ -64,8 +64,17 @@ int tcp_emit(struct app_runtime *rt, const struct ps_sockaddr *local, const stru
 int tcp_emit_flight(struct app_runtime *rt, struct ps_socket_entry *s)
 {
     struct tcp_connection *c = &s->transport.tcp;
-    return tcp_emit(rt, &s->local, &s->remote, c->snd_una, c->rcv_nxt,
-                    c->flight_flags, TCP_BUFFER_SIZE - c->rx_len, c->tx, c->flight_len);
+    if (c->flight_len) {
+        struct route_result route;
+        enum drop_reason reason = ipv4_route_query(rt, s->remote.ip_be, s->local.ip_be, NET_IIF_NONE, &route);
+        if (reason != DROP_NONE || route.mtu <= 40) return -EMSGSIZE;
+        return tcp_emit_data(rt, s, 0, RTE_MIN(c->flight_len, RTE_MIN(c->mss, route.mtu - 40)));
+    }
+    int rc = tcp_emit(rt, &s->local, &s->remote, c->snd_una, c->rcv_nxt,
+                      c->flight_flags, TCP_BUFFER_SIZE - c->rx_len, NULL, 0);
+    if (!rc && (c->flight_flags & RTE_TCP_SYN_FLAG) && c->snd_nxt == c->snd_una)
+        c->snd_nxt++;
+    return rc;
 }
 
 void tcp_ack(struct app_runtime *rt, struct ps_socket_entry *s)
@@ -73,4 +82,21 @@ void tcp_ack(struct app_runtime *rt, struct ps_socket_entry *s)
     struct tcp_connection *c = &s->transport.tcp;
     tcp_emit(rt, &s->local, &s->remote, c->snd_nxt, c->rcv_nxt,
               RTE_TCP_ACK_FLAG, TCP_BUFFER_SIZE - c->rx_len, NULL, 0);
+}
+
+int tcp_emit_data(struct app_runtime *rt, struct ps_socket_entry *s, uint16_t offset, uint16_t length)
+{
+    struct tcp_connection *c = &s->transport.tcp;
+    /* At most one bounded segment copy; ACK processing never moves queued bytes. */
+    uint8_t data[TCP_SEND_CAPACITY];
+    unsigned head = (c->tx_head + offset) % TCP_SEND_CAPACITY;
+    unsigned first = RTE_MIN(length, TCP_SEND_CAPACITY - head);
+    const uint8_t *payload = c->tx + head;
+    if (first != length) {
+        memcpy(data, payload, first);
+        memcpy(data + first, c->tx, length - first);
+        payload = data;
+    }
+    return tcp_emit(rt, &s->local, &s->remote, c->snd_una + offset, c->rcv_nxt,
+                    RTE_TCP_ACK_FLAG | RTE_TCP_PSH_FLAG, TCP_BUFFER_SIZE - c->rx_len, payload, length);
 }

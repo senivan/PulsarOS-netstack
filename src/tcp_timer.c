@@ -22,6 +22,15 @@ void tcp_tick(struct app_runtime *rt, uint64_t now)
             tcp_fail(rt, s, c->state == TCP_TIME_WAIT ? 0 : ETIMEDOUT);
             continue;
         }
+        tcp_kick(rt, s, now);
+        if (!s->allocated || c->state == TCP_CLOSED) continue;
+        if (c->persist_deadline && now >= c->persist_deadline) {
+            tcp_emit(rt, &s->local, &s->remote, c->snd_una - 1, c->rcv_nxt,
+                     RTE_TCP_ACK_FLAG, TCP_BUFFER_SIZE - c->rx_len, NULL, 0);
+            c->persist_rto = RTE_MIN(c->persist_rto * 2, 60 * rte_get_timer_hz());
+            c->persist_deadline = now + c->persist_rto;
+        }
+        if (!c->peer_window && c->persist_deadline) continue;
         if (!c->deadline || now < c->deadline) continue;
         if (c->retries == TCP_MAX_RETRIES) {
             rt->tcp_stats.timeouts++;
@@ -29,13 +38,13 @@ void tcp_tick(struct app_runtime *rt, uint64_t now)
             continue;
         }
         if (c->flight_flags) {
-            /* Conservative single-flight RTO: start at one second and back off.
-             * Retransmit copied bytes at SND.UNA, never retain graph mbufs. */
+            c->sample_valid = 0; /* Karn: retransmissions invalidate the sample. */
+            c->ssthresh = RTE_MAX(c->flight_len / 2, 2 * c->mss);
+            c->cwnd = c->mss;
+            c->ca_bytes = 0;
+            c->dupacks = c->recovery = 0;
             tcp_emit_flight(rt, s);
             rt->tcp_stats.retransmissions++;
-        } else if ((c->tx_len || c->closing) && !c->peer_window) {
-            tcp_emit(rt, &s->local, &s->remote, c->snd_nxt - 1, c->rcv_nxt,
-                      RTE_TCP_ACK_FLAG, TCP_BUFFER_SIZE - c->rx_len, NULL, 0);
         } else { c->deadline = 0; continue; }
         c->retries++;
         c->rto = RTE_MIN(c->rto * 2, 60 * rte_get_timer_hz());

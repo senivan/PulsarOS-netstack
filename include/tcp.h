@@ -4,26 +4,38 @@
 #include "packet.h"
 
 #define TCP_BUFFER_SIZE 8192
+#define TCP_SEND_CAPACITY 32768
 #define TCP_MAX_RETRIES 5
 #define TCP_TIME_WAIT_SECONDS 120
 #define TCP_FIN_WAIT_SECONDS 120
 
 enum tcp_state {
     TCP_CLOSED, TCP_LISTEN, TCP_SYN_SENT, TCP_SYN_RECEIVED, TCP_ESTABLISHED,
-    TCP_FIN_WAIT_1, TCP_FIN_WAIT_2, TCP_CLOSE_WAIT, TCP_LAST_ACK, TCP_TIME_WAIT
+    TCP_FIN_WAIT_1, TCP_FIN_WAIT_2, TCP_CLOSE_WAIT, TCP_LAST_ACK, TCP_TIME_WAIT, TCP_CLOSING
 };
 
-/* Single flight, copied byte buffers. Out-of-order data is ACKed and discarded.
+/* Dataplane-owned copied buffers; no mbuf pointers survive input.
  * No simultaneous open, scaling, SACK, timestamps, urgent data or IP fragmentation. */
 struct tcp_connection {
     enum tcp_state state;
     ps_fd_t parent;
     uint16_t backlog, mss, peer_window;
     uint32_t snd_una, snd_nxt, rcv_nxt, snd_wl1, snd_wl2;
-    uint16_t rx_len, tx_len, flight_len;
+    uint16_t rx_len, tx_len, flight_len, tx_head;
+    uint32_t cwnd, ssthresh, ca_bytes;
+    uint8_t dupacks, recovery, sample_valid;
+    uint32_t sample_end;
+    uint64_t srtt, rttvar, sample_time, persist_deadline, persist_rto;
     uint8_t flight_flags, retries, closing, peer_fin;
     uint64_t deadline, rto, expires;
-    uint8_t rx[TCP_BUFFER_SIZE], tx[TCP_BUFFER_SIZE];
+    uint8_t rx[TCP_BUFFER_SIZE];
+    /* tx_head maps SND.UNA; flight_len <= tx_len counts transmitted bytes. */
+    uint8_t *tx;
+    /* Reassembly slots indexed by sequence modulo TCP_BUFFER_SIZE. */
+    uint8_t *ooo;
+    uint8_t ooo_present[TCP_BUFFER_SIZE / 8];
+    uint32_t fin_seq;
+    uint8_t fin_pending;
 };
 
 struct tcp_stats {
@@ -54,3 +66,5 @@ int tcp_emit(struct app_runtime *, const struct ps_sockaddr *local, const struct
               const void *data, uint16_t length);
 int tcp_emit_flight(struct app_runtime *, struct ps_socket_entry *);
 void tcp_ack(struct app_runtime *, struct ps_socket_entry *);
+
+int tcp_emit_data(struct app_runtime *, struct ps_socket_entry *, uint16_t offset, uint16_t length);
