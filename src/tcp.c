@@ -217,6 +217,10 @@ void tcp_close(struct app_runtime *rt, struct ps_socket_entry *s, uint64_t now)
         tcp_fail(rt, s, ECONNABORTED);
     } else {
         c->closing = 1;
+        /* An application-abandoned socket has a bounded drain lifetime even
+         * when the peer keeps its window closed indefinitely. */
+        if (c->state == TCP_ESTABLISHED || c->state == TCP_CLOSE_WAIT)
+            c->expires = now + TCP_FIN_WAIT_SECONDS * rte_get_timer_hz();
         tcp_kick(rt, s, now);
     }
 }
@@ -443,7 +447,7 @@ enum drop_reason tcp_input(struct app_runtime *rt, const struct packet_ctx *ctx,
         c->expires = 0;
         rt->tcp_stats.established++;
     }
-    if (ack == c->snd_una && c->flight_len && !length && flags == RTE_TCP_ACK_FLAG &&
+    if (ack == c->snd_una && c->flight_len && c->peer_window && !length && flags == RTE_TCP_ACK_FLAG &&
         window == c->peer_window) {
         if (c->dupacks < 3) c->dupacks++;
         if (c->dupacks == 3 && !c->recovery) {
