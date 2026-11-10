@@ -37,7 +37,7 @@ static void start_flight(struct ps_socket_entry *s, uint8_t flags, uint16_t leng
     c->flight_flags = flags;
     c->flight_len = length;
     c->snd_nxt = c->snd_una + length + !!(flags & RTE_TCP_FIN_FLAG);
-    c->rto = rte_get_timer_hz();
+    if (!c->rto) c->rto = rte_get_timer_hz();
     c->deadline = now + c->rto;
     c->retries = 0;
 }
@@ -130,6 +130,8 @@ void tcp_kick(struct app_runtime *rt, struct ps_socket_entry *s, uint64_t now)
             if (tcp_emit_data(rt, s, c->flight_len, length)) break;
             if (!c->flight_len) {
                 c->deadline = now + c->rto;
+            }
+            if (!c->sample_valid && !c->sample_blocked) {
                 c->sample_valid = 1;
                 c->sample_time = now;
                 c->sample_end = c->snd_nxt + length;
@@ -337,6 +339,7 @@ static void acknowledge(struct app_runtime *rt, struct ps_socket_entry *s, uint3
     c->snd_una = ack;
     c->deadline = now + c->rto;
     if (ack != c->snd_nxt) return;
+    c->sample_blocked = 0;
     uint8_t flags = c->flight_flags;
     c->flight_flags = 0;
     c->deadline = 0;
@@ -449,6 +452,7 @@ enum drop_reason tcp_input(struct app_runtime *rt, const struct packet_ctx *ctx,
             c->ca_bytes = 0;
             c->recovery = 1;
             c->sample_valid = 0;
+            c->sample_blocked = 1;
             tcp_emit_flight(rt, s);
             rt->tcp_stats.retransmissions++;
         }

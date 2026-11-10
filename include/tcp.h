@@ -23,7 +23,7 @@ struct tcp_connection {
     uint32_t snd_una, snd_nxt, rcv_nxt, snd_wl1, snd_wl2;
     uint16_t rx_len, tx_len, flight_len, tx_head;
     uint32_t cwnd, ssthresh, ca_bytes;
-    uint8_t dupacks, recovery, sample_valid;
+    uint8_t dupacks, recovery, sample_valid, sample_blocked;
     uint32_t sample_end;
     uint64_t srtt, rttvar, sample_time, persist_deadline, persist_rto;
     uint8_t flight_flags, retries, closing, peer_fin;

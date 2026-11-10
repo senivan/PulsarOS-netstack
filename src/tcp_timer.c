@@ -38,6 +38,7 @@ void tcp_tick(struct app_runtime *rt, uint64_t now)
             continue;
         }
         if (c->flight_flags) {
+            c->sample_blocked = 1;
             c->sample_valid = 0; /* Karn: retransmissions invalidate the sample. */
             c->ssthresh = RTE_MAX(c->flight_len / 2, 2 * c->mss);
             c->cwnd = c->mss;
