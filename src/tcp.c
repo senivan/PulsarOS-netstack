@@ -1,5 +1,6 @@
 #include <errno.h>
 #include <string.h>
+#include <stdlib.h>
 #include <rte_cycles.h>
 #include <rte_random.h>
 #include <rte_tcp.h>
@@ -35,7 +36,7 @@ static void start_flight(struct ps_socket_entry *s, uint8_t flags, uint16_t leng
     struct tcp_connection *c = &s->transport.tcp;
     c->flight_flags = flags;
     c->flight_len = length;
-    c->snd_nxt = c->snd_una + length + !!(flags & (RTE_TCP_SYN_FLAG | RTE_TCP_FIN_FLAG));
+    c->snd_nxt = c->snd_una + length + !!(flags & RTE_TCP_FIN_FLAG);
     c->rto = rte_get_timer_hz();
     c->deadline = now + c->rto;
     c->retries = 0;
@@ -47,6 +48,8 @@ static void initialize(struct ps_socket_entry *s, uint64_t now)
     c->snd_una = c->snd_nxt = (uint32_t)rte_rand() ^ (uint32_t)now;
     c->mss = 536;
     c->peer_window = UINT16_MAX;
+    c->rto = rte_get_timer_hz();
+    c->ssthresh = TCP_SEND_CAPACITY;
 }
 
 static void cancel_queued(struct app_runtime *rt, const struct ps_socket_entry *s)
@@ -80,6 +83,10 @@ void tcp_fail(struct app_runtime *rt, struct ps_socket_entry *s, int error)
         cancel_queued(rt, s);
         rt->tcp_stats.closed++;
     }
+    free(s->transport.tcp.ooo);
+    s->transport.tcp.ooo = NULL;
+    free(s->transport.tcp.tx);
+    s->transport.tcp.tx = NULL;
     if (!s->open) { memset(s, 0, sizeof(*s)); return; }
     s->error = error;
     memset(&s->transport.tcp, 0, sizeof(s->transport.tcp));
@@ -97,25 +104,45 @@ void tcp_time_wait(struct ps_socket_entry *s, uint64_t now)
 void tcp_kick(struct app_runtime *rt, struct ps_socket_entry *s, uint64_t now)
 {
     struct tcp_connection *c = &s->transport.tcp;
-    if (c->flight_flags || (c->state != TCP_ESTABLISHED && c->state != TCP_CLOSE_WAIT)) return;
+    if (c->state != TCP_ESTABLISHED && c->state != TCP_CLOSE_WAIT) return;
+    if (!c->cwnd) c->cwnd = 2 * c->mss;
     if (!c->peer_window && (c->tx_len || c->closing)) {
-        if (!c->deadline) { c->rto = rte_get_timer_hz(); c->deadline = now + c->rto; c->retries = 0; }
+        if (!c->persist_deadline) {
+            c->persist_rto = rte_get_timer_hz();
+            c->persist_deadline = now + c->persist_rto;
+        }
         return;
     }
-    if (c->tx_len) {
+    c->persist_deadline = 0;
+    if (c->tx_len > c->flight_len) {
         struct route_result route;
         enum drop_reason reason = ipv4_route_query(rt, s->remote.ip_be, s->local.ip_be, NET_IIF_NONE, &route);
         if (reason != DROP_NONE || route.mtu <= 40) {
-            tcp_fail(rt, s, ipv4_route_errno(reason));
+            tcp_fail(rt, s, reason == DROP_NONE ? EMSGSIZE : ipv4_route_errno(reason));
             return;
         }
-        uint16_t length = RTE_MIN(c->tx_len, RTE_MIN(c->peer_window, RTE_MIN(c->mss, route.mtu - 40)));
-        start_flight(s, RTE_TCP_ACK_FLAG | RTE_TCP_PSH_FLAG, length, now);
-        tcp_emit_flight(rt, s);
-    } else if (c->closing) {
+        /* Bound work per event. The periodic scan resumes a budget-limited send. */
+        for (unsigned budget = 0; budget < 16; budget++) {
+            uint32_t limit = RTE_MIN(c->peer_window, c->cwnd);
+            if (c->flight_len >= limit || c->flight_len == c->tx_len) break;
+            uint16_t length = RTE_MIN(c->tx_len - c->flight_len,
+                RTE_MIN(limit - c->flight_len, RTE_MIN(c->mss, route.mtu - 40)));
+            if (tcp_emit_data(rt, s, c->flight_len, length)) break;
+            if (!c->flight_len) {
+                c->deadline = now + c->rto;
+                c->sample_valid = 1;
+                c->sample_time = now;
+                c->sample_end = c->snd_nxt + length;
+            }
+            c->flight_flags = RTE_TCP_ACK_FLAG | RTE_TCP_PSH_FLAG;
+            c->flight_len += length;
+            c->snd_nxt += length;
+        }
+    } else if (!c->tx_len && !c->flight_flags && c->closing) {
+        if (tcp_emit(rt, &s->local, &s->remote, c->snd_nxt, c->rcv_nxt,
+                     RTE_TCP_FIN_FLAG | RTE_TCP_ACK_FLAG, TCP_BUFFER_SIZE - c->rx_len, NULL, 0)) return;
         c->state = c->state == TCP_CLOSE_WAIT ? TCP_LAST_ACK : TCP_FIN_WAIT_1;
         start_flight(s, RTE_TCP_FIN_FLAG | RTE_TCP_ACK_FLAG, 0, now);
-        tcp_emit_flight(rt, s);
     }
 }
 
@@ -198,9 +225,16 @@ ssize_t tcp_send(struct app_runtime *rt, struct ps_socket_entry *s, const void *
     if (s->error) return -s->error;
     if (c->state != TCP_ESTABLISHED && c->state != TCP_CLOSE_WAIT) return -ENOTCONN;
     if (!length) return 0;
-    size_t accepted = RTE_MIN(length, TCP_BUFFER_SIZE - c->tx_len);
+    size_t accepted = RTE_MIN(length, TCP_SEND_CAPACITY - c->tx_len);
     if (!accepted) return -EAGAIN;
-    memcpy(c->tx + c->tx_len, data, accepted);
+    if (!c->tx) {
+        c->tx = malloc(TCP_SEND_CAPACITY);
+        if (!c->tx) return -ENOMEM;
+    }
+    unsigned tail = (c->tx_head + c->tx_len) % TCP_SEND_CAPACITY;
+    size_t first = RTE_MIN(accepted, TCP_SEND_CAPACITY - tail);
+    memcpy(c->tx + tail, data, first);
+    memcpy(c->tx, (const uint8_t *)data + first, accepted - first);
     c->tx_len += accepted;
     tcp_kick(rt, s, rte_get_timer_cycles());
     return s->error ? -s->error : (ssize_t)accepted;
@@ -277,8 +311,29 @@ static void acknowledge(struct app_runtime *rt, struct ps_socket_entry *s, uint3
     if (c->flight_len) {
         c->tx_len -= bytes;
         c->flight_len -= bytes;
-        memmove(c->tx, c->tx + bytes, c->tx_len);
+        c->tx_head = (c->tx_head + bytes) % TCP_SEND_CAPACITY;
+        if (c->recovery) { c->cwnd = c->ssthresh; c->recovery = 0; }
+        else if (c->cwnd < c->ssthresh) c->cwnd += RTE_MIN(bytes, c->mss);
+        else {
+            c->ca_bytes += bytes;
+            if (c->ca_bytes >= c->cwnd) { c->ca_bytes -= c->cwnd; c->cwnd += c->mss; }
+        }
+        c->cwnd = RTE_MIN(c->cwnd, TCP_SEND_CAPACITY);
+        c->dupacks = 0;
     }
+    if (c->sample_valid && !before(ack, c->sample_end) && now >= c->sample_time) {
+        uint64_t sample = RTE_MIN(now - c->sample_time, 60 * rte_get_timer_hz());
+        if (!c->srtt) { c->srtt = RTE_MAX(sample, UINT64_C(1)); c->rttvar = sample / 2; }
+        else {
+            uint64_t delta = c->srtt > sample ? c->srtt - sample : sample - c->srtt;
+            c->rttvar = (3 * c->rttvar + delta) / 4;
+            c->srtt = (7 * c->srtt + sample) / 8;
+        }
+        c->rto = RTE_MIN(60 * rte_get_timer_hz(), RTE_MAX(rte_get_timer_hz(),
+            c->srtt + RTE_MAX(rte_get_timer_hz() / 1000, 4 * c->rttvar)));
+        c->sample_valid = 0;
+    }
+    c->retries = 0;
     c->snd_una = ack;
     c->deadline = now + c->rto;
     if (ack != c->snd_nxt) return;
@@ -315,7 +370,7 @@ enum drop_reason tcp_input(struct app_runtime *rt, const struct packet_ctx *ctx,
     }
     struct tcp_connection *c = &s->transport.tcp;
     if (c->state == TCP_SYN_SENT) {
-        if ((flags & RTE_TCP_ACK_FLAG) && ack != c->snd_nxt) {
+        if ((flags & RTE_TCP_ACK_FLAG) && (ack != c->snd_nxt || ack == c->snd_una)) {
             reset_reply(rt, &local, &remote, seq, ack, flags, length);
             return DROP_TCP_INVALID_STATE;
         }
@@ -333,6 +388,7 @@ enum drop_reason tcp_input(struct app_runtime *rt, const struct packet_ctx *ctx,
         c->peer_window = window;
         c->snd_wl1 = seq;
         c->snd_wl2 = ack;
+        c->cwnd = 2 * c->mss;
         c->state = TCP_ESTABLISHED;
         rt->tcp_stats.established++;
         tcp_ack(rt, s);
@@ -349,9 +405,20 @@ enum drop_reason tcp_input(struct app_runtime *rt, const struct packet_ctx *ctx,
         }
         return DROP_NONE;
     }
-    if (seq != c->rcv_nxt) {
-        if (!(flags & RTE_TCP_RST_FLAG)) tcp_ack(rt, s);
-        else if (!before(seq, c->rcv_nxt) && before(seq, c->rcv_nxt + TCP_BUFFER_SIZE - c->rx_len)) tcp_ack(rt, s);
+    uint32_t end = seq + length + !!(flags & RTE_TCP_FIN_FLAG);
+    uint32_t available = TCP_BUFFER_SIZE - c->rx_len;
+    int out_of_order = seq != c->rcv_nxt;
+    /* Accept overlapping segments, but never process ACK/window/RST from an
+     * entirely out-of-window segment. Exact RCV.NXT is required for resets. */
+    if ((flags & RTE_TCP_RST_FLAG) && out_of_order) {
+        if (!before(seq, c->rcv_nxt) && before(seq, c->rcv_nxt + available)) tcp_ack(rt, s);
+        return DROP_TCP_OUT_OF_ORDER;
+    }
+    if (out_of_order && (!available ||
+        (length || (flags & RTE_TCP_FIN_FLAG) ?
+         !before(c->rcv_nxt, end) || !before(seq, c->rcv_nxt + available) :
+         before(seq, c->rcv_nxt) || !before(seq, c->rcv_nxt + available)))) {
+        tcp_ack(rt, s);
         rt->tcp_stats.out_of_order++;
         return DROP_TCP_OUT_OF_ORDER;
     }
@@ -368,31 +435,74 @@ enum drop_reason tcp_input(struct app_runtime *rt, const struct packet_ctx *ctx,
             reset_reply(rt, &local, &remote, seq, ack, flags, length);
             return DROP_TCP_INVALID_STATE;
         }
+        c->cwnd = 2 * c->mss;
         c->state = TCP_ESTABLISHED;
-        c->expires = now + 60 * rte_get_timer_hz();
+        c->expires = 0;
         rt->tcp_stats.established++;
     }
+    if (ack == c->snd_una && c->flight_len && !length && flags == RTE_TCP_ACK_FLAG &&
+        window == c->peer_window) {
+        if (c->dupacks < 3) c->dupacks++;
+        if (c->dupacks == 3 && !c->recovery) {
+            c->ssthresh = RTE_MAX(c->flight_len / 2, 2 * c->mss);
+            c->cwnd = c->ssthresh + 3 * c->mss;
+            c->ca_bytes = 0;
+            c->recovery = 1;
+            c->sample_valid = 0;
+            tcp_emit_flight(rt, s);
+            rt->tcp_stats.retransmissions++;
+        }
+    } else if (ack == c->snd_una) c->dupacks = 0;
     acknowledge(rt, s, ack, now);
     if (!s->allocated || c->state == TCP_CLOSED) return DROP_NONE;
-    if (!before(seq, c->snd_wl1) && (seq != c->snd_wl1 || !before(ack, c->snd_wl2))) {
+    if (!before(ack, c->snd_una) && !before(seq, c->snd_wl1) && (seq != c->snd_wl1 || !before(ack, c->snd_wl2))) {
         c->peer_window = window;
         c->snd_wl1 = seq;
         c->snd_wl2 = ack;
     }
-    if (!c->peer_fin && length) {
-        uint16_t received = RTE_MIN(length, TCP_BUFFER_SIZE - c->rx_len);
-        memcpy(c->rx + c->rx_len, (const uint8_t *)tcp + header_len, received);
-        c->rx_len += received;
-        c->rcv_nxt += received;
-        if (received != length) { tcp_ack(rt, s); tcp_kick(rt, s, now); return DROP_NONE; }
-    }
-    if (!c->peer_fin && (flags & RTE_TCP_FIN_FLAG) && c->rx_len < TCP_BUFFER_SIZE) {
-        c->peer_fin = 1;
-        c->rcv_nxt++;
-        if (c->state == TCP_ESTABLISHED) c->state = TCP_CLOSE_WAIT;
-        else if (c->state == TCP_FIN_WAIT_2) tcp_time_wait(s, now);
+    if (!c->peer_fin && (length || (flags & RTE_TCP_FIN_FLAG))) {
+        uint32_t base = c->rcv_nxt;
+        available = TCP_BUFFER_SIZE - c->rx_len;
+        if (length && !c->ooo) {
+            c->ooo = malloc(TCP_BUFFER_SIZE);
+            if (!c->ooo) { tcp_ack(rt, s); return DROP_TCP_OUT_OF_ORDER; }
+        }
+        for (unsigned i = 0; i < length; i++) {
+            uint32_t position = seq + i;
+            if (before(position, base) || position - base >= available ||
+                (c->fin_pending && !before(position, c->fin_seq))) continue;
+            unsigned slot = position % TCP_BUFFER_SIZE;
+            uint8_t mask = (uint8_t)(1u << (slot % 8));
+            if (!(c->ooo_present[slot / 8] & mask)) {
+                c->ooo[slot] = *((const uint8_t *)tcp + header_len + i);
+                c->ooo_present[slot / 8] |= mask;
+            }
+        }
+        uint32_t fin = seq + length;
+        if ((flags & RTE_TCP_FIN_FLAG) && !before(fin, base) && fin - base < available && !c->fin_pending) {
+            c->fin_pending = 1;
+            c->fin_seq = fin;
+        }
+        while (c->rx_len < TCP_BUFFER_SIZE && (!c->fin_pending || c->rcv_nxt != c->fin_seq)) {
+            unsigned slot = c->rcv_nxt % TCP_BUFFER_SIZE;
+            uint8_t mask = (uint8_t)(1u << (slot % 8));
+            if (!(c->ooo_present[slot / 8] & mask)) break;
+            c->rx[c->rx_len++] = c->ooo[slot];
+            c->ooo_present[slot / 8] &= (uint8_t)~mask;
+            c->rcv_nxt++;
+        }
+        if (c->fin_pending && c->rcv_nxt == c->fin_seq) {
+            c->peer_fin = 1;
+            c->fin_pending = 0;
+            c->rcv_nxt++;
+            memset(c->ooo_present, 0, sizeof(c->ooo_present));
+            if (c->state == TCP_ESTABLISHED) c->state = TCP_CLOSE_WAIT;
+            else if (c->state == TCP_FIN_WAIT_2) tcp_time_wait(s, now);
+            else if (c->state == TCP_FIN_WAIT_1) c->state = TCP_CLOSING;
+        }
     }
     if (length || (flags & RTE_TCP_FIN_FLAG)) tcp_ack(rt, s);
     tcp_kick(rt, s, now);
+    if (out_of_order) { rt->tcp_stats.out_of_order++; return DROP_TCP_OUT_OF_ORDER; }
     return DROP_NONE;
 }
