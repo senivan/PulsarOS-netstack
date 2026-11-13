@@ -5,9 +5,11 @@
 #include <stdint.h>
 #include <rte_ether.h>
 #include <rte_mbuf.h>
-#include "constants.h"
 #include "node.h"
 #include "packet.h"
+
+#define GRAPH_FRAME_SIZE 64
+#define GRAPH_FRAME_POOL_SIZE 16
 
 struct app_runtime;
 

@@ -5,6 +5,7 @@
 #include <stdlib.h>
 #include <arpa/inet.h>
 #include "config.h"
+#include "dpdk_defaults.h"
 
 static struct app_config check(const char *text, int valid)
 {

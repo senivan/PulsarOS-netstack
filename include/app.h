@@ -1,7 +1,6 @@
 #pragma once
 
 #include <stdint.h>
-#include "constants.h"
 #include "route.h"
 
 enum app_pmd { PMD_TAP, PMD_AFPKT, PMD_PHYS };
