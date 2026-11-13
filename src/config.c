@@ -1,4 +1,5 @@
 #include "config.h"
+#include "dpdk_defaults.h"
 
 #include <arpa/inet.h>
 #include <ctype.h>
