@@ -149,7 +149,7 @@ unsigned admin_progress(struct admin_service *service, struct app_runtime *rt)
             }
         }
     }
-    if (atomic_load_explicit(&service->state, memory_order_acquire) != 1) return 0;
+    if (atomic_load_explicit(&service->state, memory_order_acquire) != ADMIN_MAILBOX_WORKER) return 0;
     struct admin_job *j = &service->job;
     j->result = 0;
     if (j->type == ADMIN_ACTIVATE) {
@@ -168,6 +168,6 @@ unsigned admin_progress(struct admin_service *service, struct app_runtime *rt)
         }
     } else if (j->type == ADMIN_HARDWARE) j->result = admin_worker_operation(rt, &j->request);
     capture(rt, &j->view, &j->request);
-    atomic_store_explicit(&service->state, 2, memory_order_release);
+    atomic_store_explicit(&service->state, ADMIN_MAILBOX_REPLY, memory_order_release);
     return 1;
 }

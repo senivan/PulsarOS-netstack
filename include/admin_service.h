@@ -52,9 +52,14 @@ struct admin_connection {
     struct admin_request request;
 };
 struct daemon_service;
-/* state: 0 control owns the mailbox, 1 worker owns it, 2 control owns the reply.
- * Release/acquire transfers ownership. Activation returns the retired snapshot
- * for control-side reclamation after the graph has drained. */
+enum admin_mailbox_state {
+    ADMIN_MAILBOX_CONTROL,
+    ADMIN_MAILBOX_WORKER,
+    ADMIN_MAILBOX_REPLY
+};
+/* CONTROL and REPLY belong to control; WORKER belongs to the worker.
+ * Release/acquire transfers mailbox ownership. Activation returns the retired
+ * snapshot for control-side reclamation after the graph has drained. */
 struct admin_service {
     atomic_int state, stopping, done, failed;
     pthread_t thread;
