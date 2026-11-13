@@ -2,11 +2,6 @@
 #include <string.h>
 #include "runtime.h"
 
-static uint32_t prefix_mask(uint8_t length)
-{
-    return length ? UINT32_MAX << (32 - length) : 0;
-}
-
 int route_add(struct route_table *table, uint32_t prefix_be, uint8_t length, uint16_t id)
 {
     return route_add_gateway(table, prefix_be, length, id, 0);
@@ -18,31 +13,25 @@ int route_add_gateway(struct route_table *table, uint32_t prefix_be, uint8_t len
     if (length > 32) return -EINVAL;
     if (table->count == ROUTE_CAPACITY) return -ENOSPC;
     table->entries[table->count++] = (struct route_entry){
-        .prefix_be = prefix_be & rte_cpu_to_be_32(prefix_mask(length)),
+        .prefix_be = prefix_be & net_mask(length),
         .prefix_len = length, .netif_id = id, .gateway_be = gateway_be
     };
     return 0;
 }
 
-static int unicast(uint32_t ip_be)
-{
-    uint32_t ip = rte_be_to_cpu_32(ip_be);
-    return (ip >> 24) != 0 && (ip >> 24) != 127 && ip < 0xe0000000u;
-}
-
 static int subnet_host(uint32_t prefix_be, uint8_t length, uint32_t ip_be)
 {
-    uint32_t mask = prefix_mask(length), ip = rte_be_to_cpu_32(ip_be);
-    return length >= 31 || (ip & mask) != (rte_be_to_cpu_32(prefix_be) & mask) ||
-           ((ip & ~mask) != 0 && (ip & ~mask) != ~mask);
+    uint32_t mask_be = net_mask(length);
+    /* Only reject network/broadcast addresses within the supplied subnet. */
+    return (ip_be & mask_be) != (prefix_be & mask_be) || net_host(ip_be, length);
 }
 
 int route_is_direct(const struct route_table *table, uint16_t id, uint32_t ip_be)
 {
-    if (!unicast(ip_be)) return 0;
+    if (!net_unicast(ip_be)) return 0;
     for (uint16_t i = 0; i < table->count; i++) {
         const struct route_entry *route = &table->entries[i];
-        uint32_t mask = rte_cpu_to_be_32(prefix_mask(route->prefix_len));
+        uint32_t mask = net_mask(route->prefix_len);
         if (route->netif_id == id && !route->gateway_be &&
             (ip_be & mask) == route->prefix_be &&
             subnet_host(route->prefix_be, route->prefix_len, ip_be)) return 1;
@@ -82,7 +71,7 @@ int route_config_init(const struct app_config *conf, struct route_table *table)
 
 int ipv4_destination_valid(const struct app_runtime *rt, uint32_t ip_be)
 {
-    if (!unicast(ip_be) || netif_is_local_ip(rt, ip_be)) return 0;
+    if (!net_unicast(ip_be) || netif_is_local_ip(rt, ip_be)) return 0;
     if (rt->network) {
         for (unsigned i = 0; i < rt->network->address_count; i++) {
             const struct net_address *a = &rt->network->addresses[i];
@@ -116,7 +105,7 @@ enum drop_reason ipv4_route_lookup(const struct app_runtime *rt, uint32_t dst_ip
     const struct route_entry *best = NULL;
     for (uint16_t i = 0; i < rt->routes.count; i++) {
         const struct route_entry *route = &rt->routes.entries[i];
-        uint32_t mask = rte_cpu_to_be_32(prefix_mask(route->prefix_len));
+        uint32_t mask = net_mask(route->prefix_len);
         if ((dst_ip_be & mask) == route->prefix_be &&
             (!best || route->prefix_len > best->prefix_len)) best = route;
     }

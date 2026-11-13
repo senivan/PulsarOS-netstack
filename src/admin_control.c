@@ -67,38 +67,68 @@ static int software(const struct admin_request *r)
 }
 static void complete(struct admin_service *s)
 {
-    if(atomic_load_explicit(&s->state,memory_order_acquire)!=2) return;
-    struct admin_job *j=&s->job;
-    struct admin_connection *c=s->current>=0 ? &s->clients[s->current] : NULL;
-    if(c && s->phase==0 && software(&c->request)) {
-        struct net_config *next=malloc(sizeof(*next));
-        j->result=next ? admin_mutate(&j->view,&c->request,next) : -ENOMEM;
-        if(!j->result) {
-            j->next=next; j->retired=NULL; j->type=ADMIN_ACTIVATE; s->phase=1;
-            atomic_store_explicit(&s->state,1,memory_order_release);
+    if (atomic_load_explicit(&s->state, memory_order_acquire) != ADMIN_MAILBOX_REPLY) return;
+    struct admin_job *j = &s->job;
+    struct admin_connection *c = s->current >= 0 ? &s->clients[s->current] : NULL;
+
+    /* Build the candidate from the captured view before requesting activation. */
+    if (c && s->phase == 0 && software(&c->request)) {
+        struct net_config *next = malloc(sizeof(*next));
+        j->result = next ? admin_mutate(&j->view, &c->request, next) : -ENOMEM;
+        if (!j->result) {
+            j->next = next;
+            j->retired = NULL;
+            j->type = ADMIN_ACTIVATE;
+            s->phase = 1;
+            atomic_store_explicit(&s->state, ADMIN_MAILBOX_WORKER, memory_order_release);
             return;
         }
         free(next);
     }
-    if(s->phase==1) { if(j->result) free(j->next); else free(j->retired); j->next=j->retired=NULL; }
-    if(c) {
-        c->pending=0;
-        if(c->fd>=0) {
-            int n=0;
-            if(!j->result && c->request.group==ADM_MONITOR) {
-                if(c->request.verb!=ADM_SHOW || c->request.v[F_PROTO]>ADM_MONITOR) j->result=-EINVAL;
-                else { c->subscribed=1; c->sequence=j->view.events.sequence; }
-            } else if(!j->result && c->request.verb!=ADM_SHOW && c->request.verb!=ADM_GET) {
-                n=snprintf((char *)c->output+ADMIN_HEADER,ADMIN_RESPONSE_MAX,
-                    c->request.flags&ADMIN_JSON ? "{\"schema\":1,\"generation\":%llu,\"applied\":true}\n" : "applied generation %llu\n",(unsigned long long)j->view.config.generation);
-            } else if(!j->result) n=admin_format(&j->view,&c->request,s->applications,(char *)c->output+ADMIN_HEADER,ADMIN_RESPONSE_MAX);
-            if(n<0) { j->result=n; n=0; }
-            response(c,j->result,j->view.config.generation,(size_t)n);
-        } else { c->have=0; c->length=0; }
+
+    /* Failed activation leaves the candidate unused; success retires the old view. */
+    if (s->phase == 1) {
+        if (j->result) free(j->next);
+        else free(j->retired);
+        j->next = NULL;
+        j->retired = NULL;
     }
-    for(unsigned i=0;i<ADMIN_CLIENT_MAX;i++) if(s->clients[i].fd>=0 && s->clients[i].subscribed) events(s,&s->clients[i]);
-    s->current=-1;
-    atomic_store_explicit(&s->state,0,memory_order_release);
+
+    if (c) {
+        c->pending = 0;
+        if (c->fd >= 0) {
+            int n = 0;
+            if (!j->result && c->request.group == ADM_MONITOR) {
+                if (c->request.verb != ADM_SHOW || c->request.v[F_PROTO] > ADM_MONITOR) {
+                    j->result = -EINVAL;
+                } else {
+                    c->subscribed = 1;
+                    c->sequence = j->view.events.sequence;
+                }
+            } else if (!j->result && c->request.verb != ADM_SHOW && c->request.verb != ADM_GET) {
+                n = snprintf((char *)c->output + ADMIN_HEADER, ADMIN_RESPONSE_MAX,
+                    c->request.flags & ADMIN_JSON ?
+                        "{\"schema\":1,\"generation\":%llu,\"applied\":true}\n" : "applied generation %llu\n",
+                    (unsigned long long)j->view.config.generation);
+            } else if (!j->result) {
+                n = admin_format(&j->view, &c->request, s->applications,
+                                 (char *)c->output + ADMIN_HEADER, ADMIN_RESPONSE_MAX);
+            }
+            if (n < 0) {
+                j->result = n;
+                n = 0;
+            }
+            response(c, j->result, j->view.config.generation, (size_t)n);
+        } else {
+            c->have = 0;
+            c->length = 0;
+        }
+    }
+    for (unsigned i = 0; i < ADMIN_CLIENT_MAX; i++) {
+        if (s->clients[i].fd >= 0 && s->clients[i].subscribed) events(s, &s->clients[i]);
+    }
+    s->current = -1;
+    atomic_store_explicit(&s->state, ADMIN_MAILBOX_CONTROL, memory_order_release);
 }
 static void accept_clients(struct admin_service *s)
 {
@@ -138,7 +168,7 @@ static void write_client(struct admin_connection *c)
 }
 static void schedule(struct admin_service *s)
 {
-    if(atomic_load_explicit(&s->state,memory_order_acquire)) return;
+    if(atomic_load_explicit(&s->state,memory_order_acquire)!=ADMIN_MAILBOX_CONTROL) return;
     for(unsigned n=1;n<=ADMIN_CLIENT_MAX;n++) {
         unsigned i=(s->cursor+n)%ADMIN_CLIENT_MAX;
         struct admin_connection *c=&s->clients[i];
@@ -147,21 +177,22 @@ static void schedule(struct admin_service *s)
         s->job.request=c->request; s->job.type=ADMIN_READ;
         if((c->request.group==ADM_LINK || c->request.group==ADM_NEIGH) && c->request.verb!=ADM_SHOW) s->job.type=ADMIN_HARDWARE;
         c->pending=1;
-        atomic_store_explicit(&s->state,1,memory_order_release);
+        atomic_store_explicit(&s->state,ADMIN_MAILBOX_WORKER,memory_order_release);
         return;
     }
     if(milliseconds()-s->last_scan<100) return;
     for(unsigned i=0;i<ADMIN_CLIENT_MAX;i++) if(s->clients[i].subscribed) {
         s->last_scan=milliseconds(); s->current=-1; s->phase=0;
         s->job.request=(struct admin_request){.group=ADM_MONITOR,.verb=ADM_SHOW}; s->job.type=ADMIN_READ;
-        atomic_store_explicit(&s->state,1,memory_order_release); return;
+        atomic_store_explicit(&s->state,ADMIN_MAILBOX_WORKER,memory_order_release); return;
     }
 }
 static void *run(void *arg)
 {
     struct admin_service *s=arg;
     pthread_setaffinity_np(pthread_self(),sizeof(s->applications->control_cpus),&s->applications->control_cpus);
-    while(!atomic_load_explicit(&s->stopping,memory_order_acquire) || atomic_load_explicit(&s->state,memory_order_acquire)) {
+    while(!atomic_load_explicit(&s->stopping,memory_order_acquire) ||
+          atomic_load_explicit(&s->state,memory_order_acquire)!=ADMIN_MAILBOX_CONTROL) {
         complete(s);
         if(atomic_load(&s->stopping)) { for(unsigned i=0;i<ADMIN_CLIENT_MAX;i++) disconnect(&s->clients[i]); continue; }
         schedule(s);
@@ -184,7 +215,7 @@ static void *run(void *arg)
 int admin_prepare(struct admin_service *s, const char *path, struct daemon_service *apps)
 {
     memset(s,0,sizeof(*s)); s->listener=s->lock_fd=s->current=-1; s->applications=apps;
-    atomic_init(&s->state,0);atomic_init(&s->stopping,0);atomic_init(&s->done,0);atomic_init(&s->failed,0);
+    atomic_init(&s->state,ADMIN_MAILBOX_CONTROL);atomic_init(&s->stopping,0);atomic_init(&s->done,0);atomic_init(&s->failed,0);
     for(unsigned i=0;i<ADMIN_CLIENT_MAX;i++) s->clients[i].fd=-1;
     if(!*path || strlen(path)>=sizeof(s->path)) return -EINVAL;
     strcpy(s->path,path);
