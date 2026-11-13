@@ -6,6 +6,7 @@ import concurrent.futures
 import os
 import socket
 import subprocess
+import tempfile
 import threading
 import time
 from pathlib import Path
@@ -102,15 +103,16 @@ def main():
     config.write_text(f'lcore={min(os.sched_getaffinity(0))}\nno_huge=1\n'
                       '[interface]\npmd=af_packet\ndevice=tb-host\nip=192.0.2.2/24\n')
     daemon = None
-    ip('link', 'add', 'tb-host', 'type', 'veth', 'peer', 'name', 'tb-peer')
+    runtime = tempfile.TemporaryDirectory(prefix='netstack-tcp-bulk-')
     try:
+        ip('link', 'add', 'tb-host', 'type', 'veth', 'peer', 'name', 'tb-peer')
         for name in ('tb-host', 'tb-peer'):
             ip('link', 'set', name, 'up')
             subprocess.run(['ethtool', '-K', name, 'tx', 'off', 'rx', 'off',
                             'tso', 'off', 'gso', 'off', 'gro', 'off'], check=True, capture_output=True)
         ip('addr', 'add', '192.0.2.1/24', 'dev', 'tb-peer')
         with (args.artifacts / 'daemon.log').open('w+') as log:
-            daemon = Daemon(args.binary, config, log)
+            daemon = Daemon(args.binary, config, log, socket_path=Path(runtime.name) / 'bulk.sock')
             daemon.client(args.binary)
             for mib in (1, 10, 100):
                 start = time.monotonic()
@@ -128,9 +130,12 @@ def main():
             daemon.stop()
             daemon = None
     finally:
-        if daemon:
-            daemon.stop(check=False)
-        ip('link', 'del', 'tb-host')
+        try:
+            if daemon:
+                daemon.stop(check=False)
+            ip('link', 'del', 'tb-host')
+        finally:
+            runtime.cleanup()
 
 
 if __name__ == '__main__':
