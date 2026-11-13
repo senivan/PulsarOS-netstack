@@ -130,7 +130,7 @@ def main():
                     sockets[1 if sock is sockets[0] else 0].send(raw)
 
             with (artifacts / 'server.log').open('w+') as log:
-                daemon = Daemon(args.binary, config, log)
+                daemon = Daemon(args.binary, config, log, socket_path=Path(tmp) / 'stack.sock')
                 server = daemon.process
                 echo = daemon.client(args.binary)
                 processes.append(server)

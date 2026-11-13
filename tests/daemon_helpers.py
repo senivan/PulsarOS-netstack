@@ -13,11 +13,11 @@ def wait_ready(process, log, marker):
 
 
 class Daemon:
-    def __init__(self, binary, config, log, options=()):
+    def __init__(self, binary, config, log, options=(), socket_path=None):
         self.clients = []
         self.next_client = 0
         self.streams = []
-        self.path = str(config.with_suffix('.sock'))
+        self.path = str(socket_path if socket_path is not None else config.with_suffix('.sock'))
         daemon = Path(binary).resolve().parent / 'pulsarosd'
         self.process = subprocess.Popen([str(daemon), str(config), '--socket', self.path, *options], stdout=log, stderr=log)
         self.log = Path(log.name)
